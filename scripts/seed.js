@@ -13,8 +13,8 @@ const APP_SETTINGS = [
   ['supervisor_session_ttl_minutes', '480'],
   ['maintenance_mode', '0'],
   ['max_pause_minutes', '15'],
-  ['github_owner', ''],
-  ['github_repo', ''],
+  ['github_owner', 'gbobsleg'],
+  ['github_repo', 'Flowi'],
   ['github_token', ''],
   ['supervisor_pin', '1234'],
 ];

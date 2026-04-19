@@ -5,6 +5,7 @@ const { spawn }    = require('child_process');
 const path         = require('path');
 const fs           = require('fs');
 const config       = require('../config');
+const db           = require('../db/sqlite');
 const { requireSupervisor } = require('../middlewares/supervisorAuth');
 const { Errors }   = require('../middlewares/validate');
 
@@ -49,6 +50,22 @@ function semverGt(a, b) {
   return false;
 }
 
+function readSetting(key) {
+  const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key);
+  if (!row || typeof row.value !== 'string') return '';
+  return row.value.trim();
+}
+
+function resolveOtaRepo() {
+  const ownerFromDb = readSetting('github_owner');
+  const repoFromDb = readSetting('github_repo');
+
+  const owner = ownerFromDb || String(config.GITHUB_OWNER || '').trim();
+  const repo = repoFromDb || String(config.GITHUB_REPO || '').trim();
+
+  return { owner, repo };
+}
+
 // ---------- routes ----------
 
 /**
@@ -57,11 +74,15 @@ function semverGt(a, b) {
  */
 router.get('/update/check', requireSupervisor, async (req, res) => {
   try {
-    const owner = config.GITHUB_OWNER;
-    const repo  = config.GITHUB_REPO;
+    const { owner, repo } = resolveOtaRepo();
 
     if (!owner || !repo) {
-      return res.status(503).json({ error: { code: 'OTA_NOT_CONFIGURED', message: 'GITHUB_OWNER et GITHUB_REPO doivent être définis dans .env' } });
+      return res.status(503).json({
+        error: {
+          code: 'OTA_NOT_CONFIGURED',
+          message: 'github_owner et github_repo doivent être définis (app_settings prioritaire, .env en fallback)',
+        },
+      });
     }
 
     const { status, body } = await githubGet(`/repos/${owner}/${repo}/releases/latest`);

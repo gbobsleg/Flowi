@@ -1,0 +1,27 @@
+[server] App pauses démarrée sur http://localhost:3000
+[socket] Connexion: RxsFAA_eUZqLlp95AAAB
+[socket] RxsFAA_eUZqLlp95AAAB a rejoint la room superviseur
+[socket] Connexion: 0cCT7vw92NJBjp0EAAAE
+[socket] 0cCT7vw92NJBjp0EAAAE a rejoint la room superviseur
+[socket] Connexion: Q8gBcCoUmIHLOI9DAAAH
+[socket] Q8gBcCoUmIHLOI9DAAAH a rejoint offer:OFFRE_A
+[session] identify attempt {
+  matricule: 'MAT001',
+  clientId: 'Q8gBcCoUmIHLOI9DAAAH',
+  deviceId: '6ed45980-b7b6-42e3-bee2-2cd61a06ce75',
+  existingSocketId: null,
+  existingDeviceId: null,
+  hasExistingSocket: false,
+  activeSessions: []
+}
+[socket] Connexion: W3ZREzhQOOwxCxxbAAAK
+[socket] W3ZREzhQOOwxCxxbAAAK a rejoint offer:OFFRE_A
+[session] identify attempt {
+  matricule: 'MAT001',
+  clientId: 'W3ZREzhQOOwxCxxbAAAK',
+  deviceId: '6ed45980-b7b6-42e3-bee2-2cd61a06ce75',
+  existingSocketId: 'Q8gBcCoUmIHLOI9DAAAH',
+  existingDeviceId: '6ed45980-b7b6-42e3-bee2-2cd61a06ce75',
+  hasExistingSocket: true,
+  activeSessions: [ [ 'MAT001', [Object] ] ]
+}
