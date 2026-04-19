@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="fr" x-data="agentApp()" x-init="init()">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flowi - Agent</title>
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50:'#f0f9ff', 100:'#e0f2fe', 500:'#0ea5e9', 600:'#0284c7', 700:'#0369a1' }
+          },
+          keyframes: {
+            blink: { '0%,100%': { opacity: '1' }, '50%': { opacity: '0.25' } }
+          },
+          animation: {
+            blink: 'blink 1s ease-in-out infinite'
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Alpine.js CDN -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+  <!-- Socket.io client (servi par le backend) -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <style>
+    [x-cloak] { display: none !important; }
+
+    /* Scrollbar discrète */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+  </style>
+</head>
+
+<body class="bg-slate-50 min-h-screen font-sans antialiased text-slate-800">
+
+<!-- ═══════════════════════════════════════════════════
+     HEADER
+════════════════════════════════════════════════════ -->
+<header class="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
+  <div class="flex items-center gap-2">
+    <span class="w-2 h-2 rounded-full bg-brand-500" :class="socketConnected ? 'bg-green-400' : 'bg-red-400 animate-pulse'"></span>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" class="w-8 h-8 mr-2" fill="currentColor">
+      <path d="M194,100c0,51.83-42.17,94-94,94S6,151.83,6,100,48.17,6,100,6c7.73,0,14,6.27,14,14s-6.27,14-14,14c-36.39,0-66,29.61-66,66s29.61,66,66,66,66-29.61,66-66c0-1.45.22-2.85.63-4.16.18-.58.41-1.14.66-1.68,1.44-3.13,4-5.64,7.17-7.01.11-.05.23-.09.35-.14,1.61-.64,3.36-1.01,5.2-1.01,6.28,0,11.6,4.14,13.37,9.84.41,1.32.63,2.71.63,4.16ZM72,64c-2.21,0-4,1.79-4,4v64c0,2.21,1.79,4,4,4h12c2.21,0,4-1.79,4-4v-64c0-2.21-1.79-4-4-4h-12ZM112,68v64c0,2.21,1.79,4,4,4h12c2.21,0,4-1.79,4-4v-64c0-2.21-1.79-4-4-4h-12c-2.21,0-4,1.79-4,4Z"/>
+    </svg>
+    <span class="font-semibold text-slate-700 tracking-tight text-sm">Flowi - Agent</span>
+  </div>
+  <div class="text-xs text-slate-400" x-text="socketConnected ? 'Connecté' : 'Reconnexion…'"></div>
+</header>
+
+<!-- Bandeau MODE URGENCE -->
+<div
+  x-show="maintenanceMode"
+  x-cloak
+  class="bg-red-600 text-white text-sm font-semibold px-4 py-3 flex items-center justify-center gap-2 animate-pulse"
+>
+  <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+      d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+  </svg>
+  Départs en pause suspendus (Consigne Superviseur)
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     MAIN
+════════════════════════════════════════════════════ -->
+<main class="max-w-2xl mx-auto px-4 py-6 space-y-6">
+
+  <!-- ── Quotas offres (temps réel) ───────────────── -->
+  <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-xs font-semibold uppercase tracking-widest text-slate-400">Quotas par offre</h2>
+      <span class="text-[11px] text-slate-400">Temps réel</span>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <template x-for="quota in quotasTiles" :key="quota.offre_id">
+        <div
+          class="rounded-lg border px-3 py-2 transition text-slate-900"
+          :style="{ backgroundColor: resolveOfferColor(quota.offre_id, quota.color) }"
+          :class="isQuotaReached(quota)
+            ? 'border-red-300'
+            : 'border-slate-200'"
+        >
+          <div class="text-xs font-semibold truncate" :class="isQuotaReached(quota) ? 'text-red-800' : 'text-slate-800'" x-text="quota.nom"></div>
+          <div class="mt-1 text-sm font-mono tabular-nums" :class="isQuotaReached(quota) ? 'text-red-700' : 'text-slate-700'">
+            <span x-text="formatQuotaCount(quota.pauses_en_cours)"></span>
+            <span>/</span>
+            <span x-text="formatQuotaLimit(quota.quota_max)"></span>
+          </div>
+        </div>
+      </template>
+    </div>
+  </section>
+
+  <!-- ── Identification ─────────────────────────────── -->
+  <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+    <h2 class="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-4">Mon identification</h2>
+
+    <!-- Recherche agent avec autocomplétion stricte -->
+    <div class="relative mb-4">
+      <label class="block text-xs text-slate-500 mb-1">Agent (nom ou prénom)</label>
+      <input
+        type="text"
+        x-model="searchText"
+        @input.debounce.250ms="fetchSuggestions"
+        @keydown.escape="showSuggestions = false"
+        @keydown.arrow-down.prevent="focusSuggestion(1)"
+        @keydown.arrow-up.prevent="focusSuggestion(-1)"
+        @keydown.enter.prevent="selectSuggestion(focusedSuggestion)"
+        @blur="hideSuggestionsDelayed"
+        placeholder="Tapez au moins 2 caractères…"
+        autocomplete="off"
+        :disabled="isPaused"
+        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent disabled:bg-slate-100 disabled:cursor-not-allowed transition"
+      >
+      <!-- Dropdown suggestions -->
+      <ul
+        x-show="showSuggestions && suggestions.length > 0"
+        x-cloak
+        class="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden text-sm"
+      >
+        <template x-for="(s, i) in suggestions" :key="s.agent_matricule">
+          <li
+            @mousedown.prevent="selectSuggestion(i)"
+            :class="i === focusedSuggestion ? 'bg-brand-50 text-brand-700' : 'hover:bg-slate-50'"
+            class="px-3 py-2 cursor-pointer transition"
+            x-text="`${s.prenom} ${s.nom}`"
+          ></li>
+        </template>
+      </ul>
+    </div>
+
+    <div class="mb-4 flex items-center gap-2 text-xs">
+      <template x-if="profilValideSelectionne">
+        <span class="inline-flex items-center gap-1 rounded-full bg-green-100 text-green-700 px-2 py-1 font-medium">
+          <span>✓</span>
+          <span x-text="`Profil validé : ${selectedProfile.prenom} ${selectedProfile.nom}`"></span>
+        </span>
+      </template>
+      <template x-if="!profilValideSelectionne">
+        <span class="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-700 px-2 py-1 font-medium">
+          <span>!</span>
+          <span>Sélectionnez un profil valide dans la liste.</span>
+        </span>
+      </template>
+    </div>
+    <div class="mb-4">
+      <button
+        @click="changeProfile"
+        :disabled="isPaused"
+        class="text-xs text-slate-500 hover:text-slate-700 underline underline-offset-2 disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline transition"
+      >
+        Changer de profil
+      </button>
+    </div>
+
+    <!-- Offre -->
+    <div class="mb-4">
+      <label class="block text-xs text-slate-500 mb-1">Offre</label>
+      <select
+        x-model="offerCode"
+        @change="persistLocal(); evaluateBlockStatus()"
+        :disabled="isPaused || !profilValideSelectionne"
+        :class="!profilValideSelectionne ? 'opacity-60' : ''"
+        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent disabled:bg-slate-100 disabled:cursor-not-allowed transition bg-white"
+      >
+        <option value="">— Choisir une offre —</option>
+        <template x-for="o in selectableOffers" :key="o.code">
+          <option :value="o.code" x-text="o.label"></option>
+        </template>
+      </select>
+    </div>
+
+    <!-- Alerte quota atteint -->
+    <div
+      x-show="isOfferBlocked && !isPaused"
+      x-cloak
+      x-transition
+      class="mb-4 flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-lg px-3 py-2"
+    >
+      <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+      </svg>
+      <span>Quota de pauses atteint pour cette offre. Veuillez patienter.</span>
+    </div>
+
+    <!-- Alerte d'erreur générale -->
+    <div
+      x-show="errorMsg"
+      x-cloak
+      x-transition
+      class="mb-4 flex items-center gap-2 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3 py-2"
+    >
+      <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+          d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+      <span x-text="errorMsg"></span>
+    </div>
+
+    <!-- Bouton action principal -->
+    <button
+      @click="togglePause"
+      :disabled="isActionLoading || (!isPaused && (!profilValideSelectionne || !offerCode)) || (!isPaused && isOfferBlocked) || (!isPaused && maintenanceMode)"
+      :class="{
+        'bg-red-500 hover:bg-red-600 text-white': isPaused,
+        'bg-brand-600 hover:bg-brand-700 text-white': !isPaused && !isOfferBlocked && !maintenanceMode,
+        'bg-slate-200 text-slate-400 cursor-not-allowed': !isPaused && (!profilValideSelectionne || isOfferBlocked || maintenanceMode),
+        'opacity-60 cursor-wait': isActionLoading
+      }"
+      class="w-full rounded-xl py-3 px-4 font-semibold text-sm transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-500 select-none"
+    >
+      <span x-show="isActionLoading" class="inline-flex items-center gap-2">
+        <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+        </svg>
+        En cours…
+      </span>
+      <span x-show="!isActionLoading" x-text="isPaused ? '↩ Retour de pause' : '☕ Départ en pause'"></span>
+    </button>
+
+    <!-- Chrono personnel en cours de pause -->
+    <div
+      x-show="isPaused && myStartTime"
+      x-cloak
+      class="mt-3 text-center"
+    >
+      <span class="text-xs text-slate-500">Pause en cours depuis</span>
+      <div
+        class="text-2xl font-mono font-bold mt-0.5 tabular-nums"
+        :class="{
+          'text-red-500 animate-blink':  myElapsedMin >= thresholdRed,
+          'text-orange-500':             myElapsedMin >= thresholdOrange && myElapsedMin < thresholdRed,
+          'text-brand-600':              myElapsedMin < thresholdOrange
+        }"
+        x-text="formatDuration(myElapsedSec)"
+      ></div>
+    </div>
+  </section>
+
+  <!-- ── Dashboard global ───────────────────────────── -->
+  <section class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+    <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+      <h2 class="text-xs font-semibold uppercase tracking-widest text-slate-400">Agents en pause</h2>
+      <div class="flex items-center gap-3">
+        <!-- Filtre par offre -->
+        <select
+          x-model="filterOffer"
+          class="text-xs border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white"
+        >
+          <option value="">Toutes les offres</option>
+          <template x-for="o in offers" :key="o.code">
+            <option :value="o.code" x-text="o.label"></option>
+          </template>
+        </select>
+        <!-- Compteur -->
+        <span class="text-xs font-mono bg-slate-100 text-slate-600 rounded-full px-2 py-0.5"
+          x-text="filteredPauses.length + ' / ' + allPauses.length"></span>
+      </div>
+    </div>
+
+    <!-- Tableau -->
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm" x-show="filteredPauses.length > 0">
+        <thead>
+          <tr class="text-xs text-slate-400 uppercase tracking-wider border-b border-slate-100">
+            <th class="px-5 py-3 text-left font-medium">Nom</th>
+            <th class="px-5 py-3 text-left font-medium">Offre</th>
+            <th class="px-5 py-3 text-right font-medium">Temps écoulé</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="p in filteredPauses" :key="p.id">
+            <tr
+              class="border-b border-slate-50 last:border-0 transition-colors"
+              :class="p.agent_matricule === agent_matricule ? 'bg-brand-50' : 'hover:bg-slate-50'"
+            >
+              <td class="px-5 py-3 font-medium text-slate-700">
+                <span x-text="p.agentName"></span>
+                <span x-show="p.agent_matricule === agent_matricule" class="ml-1.5 text-xs text-brand-500 font-normal">(moi)</span>
+              </td>
+              <td class="px-5 py-3">
+                <span
+                  class="inline-block text-slate-900 text-xs font-mono rounded px-1.5 py-0.5 border border-slate-200"
+                  :style="{ backgroundColor: resolveOfferColorByCode(p.offerCode) }"
+                  x-text="p.offerCode">
+                </span>
+              </td>
+              <td class="px-5 py-3 text-right font-mono font-semibold tabular-nums">
+                <span
+                  :class="{
+                    'text-red-500 animate-blink':  elapsedMin(p.startTime) >= thresholdRed,
+                    'text-orange-500':             elapsedMin(p.startTime) >= thresholdOrange && elapsedMin(p.startTime) < thresholdRed,
+                    'text-slate-700':              elapsedMin(p.startTime) < thresholdOrange
+                  }"
+                  x-text="formatDuration(elapsedSec(p.startTime))"
+                ></span>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+
+      <!-- État vide -->
+      <div
+        x-show="filteredPauses.length === 0"
+        x-cloak
+        class="py-12 text-center text-sm text-slate-400"
+      >
+        <svg class="w-8 h-8 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M9 12l2 2 4-4M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        Aucun agent en pause actuellement.
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ═══════════════════════════════════════════════════
+     ALPINE APP
+════════════════════════════════════════════════════ -->
+<script>
+function agentApp() {
+  return {
+    // ── Identité ─────────────────────────────────────
+    device_id: '',
+    agent_matricule: '',
+    searchText: '',
+    offerCode: '',
+    profilValideSelectionne: false,
+    selectedProfile: { matricule: '', nom: '', prenom: '' },
+
+    // ── Autocomplétion ───────────────────────────────
+    suggestions:      [],
+    showSuggestions:  false,
+    focusedSuggestion: -1,
+
+    // ── État pause agent courant ─────────────────────
+    isPaused:    false,
+    myStartTime: null,
+    myPauseId:   null,
+    myElapsedSec: 0,
+    myElapsedMin: 0,
+
+    // ── Dashboard global ─────────────────────────────
+    allPauses:   [],   // { id, agent_matricule, agentName, offerCode, startTime }
+    _now: Date.now(),
+    filterOffer: '',
+    offers:      [],   // { id, code, label, default_quota, color? }
+    blockStatus: {},   // { [offerCode]: { canStartPause, effectiveQuota, currentPaused } }
+    quotasTiles: [],   // [{ offre_id, nom, quota_max, pauses_en_cours }]
+    pastelColors: ['#ffb3ba', '#ffdfba', '#ffffba', '#baffc9', '#bae1ff'],
+
+    // ── Durée max pause ──────────────────────────────
+    maxPauseMinutes: 15,
+    thresholdRed:    14,
+    thresholdOrange: 12,
+
+    updateThresholds() {
+      this.thresholdRed    = Math.max(1, this.maxPauseMinutes - 1);
+      this.thresholdOrange = Math.max(1, this.maxPauseMinutes - 3);
+    },
+
+    // ── Mode urgence ─────────────────────────────────
+    maintenanceMode: false,
+
+    // ── UI state ─────────────────────────────────────
+    isActionLoading:  false,
+    socketConnected:  false,
+    errorMsg:         '',
+    sessionConflict:  false,
+
+    // ── Computed ─────────────────────────────────────
+    get isOfferBlocked() {
+      if (!this.offerCode) return false;
+      const s = this.blockStatus[this.offerCode];
+      return s ? !s.canStartPause : false;
+    },
+
+    get filteredPauses() {
+      if (!this.filterOffer) return this.allPauses;
+      return this.allPauses.filter(p => p.offerCode === this.filterOffer);
+    },
+
+    get selectableOffers() {
+      return this.offers.filter(o => Number(o.is_active) === 1);
+    },
+
+    // ── Initialisation ───────────────────────────────
+    async init() {
+      this.ensureDeviceId();
+      this.loadLocal();
+      await this.validateStoredProfile();
+      await this.bootstrap();
+      this.connectSocket();
+      this.startTick();
+    },
+
+    ensureDeviceId() {
+      const existing = localStorage.getItem('agentDeviceId');
+      if (existing) {
+        this.device_id = existing;
+        return;
+      }
+
+      let generatedId = '';
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        generatedId = window.crypto.randomUUID();
+      } else {
+        generatedId = `dev-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      }
+      this.device_id = generatedId;
+      localStorage.setItem('agentDeviceId', generatedId);
+    },
+
+    // ── localStorage ─────────────────────────────────
+    loadLocal() {
+      this.agent_matricule = localStorage.getItem('agentMatricule') || '';
+      this.searchText = localStorage.getItem('agentDisplayName') || '';
+      this.offerCode = localStorage.getItem('agentOffer') || '';
+      if (this.agent_matricule) {
+        this.profilValideSelectionne = true;
+      }
+    },
+
+    persistLocal() {
+      localStorage.setItem('agentMatricule', this.agent_matricule);
+      localStorage.setItem('agentDisplayName', this.searchText);
+      localStorage.setItem('agentOffer', this.offerCode);
+    },
+
+    clearIdentityLocal() {
+      this.agent_matricule = '';
+      this.searchText = '';
+      this.profilValideSelectionne = false;
+      this.selectedProfile = { matricule: '', nom: '', prenom: '' };
+      this.offerCode = '';
+      localStorage.removeItem('agentMatricule');
+      localStorage.removeItem('agentDisplayName');
+      localStorage.removeItem('agentOffer');
+    },
+
+    async validateStoredProfile() {
+      if (!this.agent_matricule) return;
+      try {
+        const res = await fetch('/api/agent/identify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agent_matricule: this.agent_matricule }),
+        });
+        if (!res.ok) {
+          this.clearIdentityLocal();
+          return;
+        }
+        const data = await res.json();
+        if (!data.agent || data.agent.is_active !== 1) {
+          this.clearIdentityLocal();
+          return;
+        }
+        this.profilValideSelectionne = true;
+        this.selectedProfile = {
+          matricule: data.agent.matricule,
+          nom: data.agent.nom,
+          prenom: data.agent.prenom,
+        };
+        this.searchText = `${data.agent.prenom} ${data.agent.nom}`;
+        this.persistLocal();
+      } catch {
+        this.clearIdentityLocal();
+      }
+    },
+
+    // ── Bootstrap ────────────────────────────────────
+    async bootstrap() {
+      try {
+        const res  = await fetch(`/api/agent/bootstrap?agent_matricule=${encodeURIComponent(this.agent_matricule)}`, {
+          cache: 'no-store',
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+
+        // Alimenter la liste des offres depuis le snapshot
+        if (data.snapshot && data.snapshot.length > 0) {
+          this.offers = data.snapshot.map(s => s.offer);
+          this.buildBlockStatus(data.snapshot);
+        }
+
+        if (data.activePause) {
+          this.isPaused    = true;
+          this.myStartTime = data.activePause.start_time;
+          this.myPauseId   = data.activePause.id;
+          if (!this.offerCode) {
+            this.offerCode = data.activePause.offer_code;
+            localStorage.setItem('agentOffer', this.offerCode);
+          }
+        }
+
+        if (Array.isArray(data.quotas)) {
+          this.quotasTiles = data.quotas;
+          this.applyQuotasPayload(data.quotas);
+        }
+
+        if (!this.isPaused && this.offerCode) {
+          const selected = this.offers.find(o => o.code === this.offerCode);
+          if (!selected || Number(selected.is_active) !== 1) {
+            this.offerCode = '';
+            localStorage.removeItem('agentOffer');
+            this.errorMsg = 'L’offre sélectionnée est indisponible. Merci de choisir une offre active.';
+          }
+        }
+
+        if (data.agent && data.agent.is_active === 1) {
+          this.profilValideSelectionne = true;
+          this.selectedProfile = {
+            matricule: data.agent.matricule,
+            nom: data.agent.nom,
+            prenom: data.agent.prenom,
+          };
+          this.searchText = `${data.agent.prenom} ${data.agent.nom}`;
+        }
+
+        // État maintenance initial depuis le bootstrap
+        if (typeof data.maintenanceMode === 'boolean') this.maintenanceMode = data.maintenanceMode;
+
+        // Durée maximale de pause
+        if (typeof data.maxPauseMinutes === 'number') { this.maxPauseMinutes = data.maxPauseMinutes; this.updateThresholds(); }
+
+        // Alimenter le dashboard
+        this.allPauses = [];
+        for (const entry of data.snapshot) {
+          for (const p of entry.pauses) {
+            this.upsertPause({
+              id: p.id,
+              agent_matricule: p.agent_matricule,
+              agentName: `${p.prenom} ${p.nom}`,
+              offerCode: entry.offer.code,
+              startTime: p.start_time,
+            });
+          }
+        }
+      } catch (e) {
+        console.error('[bootstrap]', e);
+      }
+    },
+
+    buildBlockStatus(snapshot) {
+      const status = {};
+      for (const entry of snapshot) {
+        status[entry.offer.code] = {
+          canStartPause: !entry.blocked,
+          effectiveQuota: entry.effectiveQuota,
+          currentPaused:  entry.pauses.length,
+        };
+      }
+      this.blockStatus = status;
+    },
+
+    /** Aligner offers + is_active depuis quotas:update (même jeu d'offres que le snapshot UNION côté API). */
+    applyQuotasPayload(payload) {
+      if (!Array.isArray(payload)) return;
+      const byCode = Object.fromEntries(this.offers.map(o => [o.code, { ...o }]));
+      const next = [];
+      for (const t of payload) {
+        if (!t || typeof t.code !== 'string') continue;
+        const code = t.code;
+        const prev = byCode[code] || {};
+        next.push({
+          ...prev,
+          id: t.offre_id ?? prev.id,
+          code,
+          label: t.nom ?? prev.label ?? code,
+          color: t.color !== undefined ? t.color : prev.color,
+          is_active: Number(t.is_active) === 1 ? 1 : 0,
+          default_quota: prev.default_quota ?? 0,
+        });
+      }
+      next.sort((a, b) => String(a.code).localeCompare(String(b.code)));
+      this.offers = next;
+      if (!this.isPaused && this.offerCode) {
+        const selected = this.offers.find(o => o.code === this.offerCode);
+        if (!selected || Number(selected.is_active) !== 1) {
+          this.offerCode = '';
+          localStorage.removeItem('agentOffer');
+          this.errorMsg = 'L’offre sélectionnée est indisponible. Merci de choisir une offre active.';
+        }
+      }
+    },
+
+    evaluateBlockStatus() {
+      // Réévalue visuellement après sélection d'offre (le blockStatus est maintenu par Socket)
+    },
+
+    // ── Socket.io ────────────────────────────────────
+    connectSocket() {
+      const socket = io({ transports: ['websocket', 'polling'] });
+
+      socket.on('connect', () => {
+        this.socketConnected = true;
+        // Rejoindre la room de l'offre courante
+        if (this.offerCode) socket.emit('join:offer', { offerCode: this.offerCode });
+        if (this.agent_matricule) {
+          socket.emit('agent:identify', { agent_matricule: this.agent_matricule, device_id: this.device_id });
+        }
+      });
+
+      socket.on('disconnect', () => { this.socketConnected = false; });
+      socket.on('connect_error', () => { this.socketConnected = false; });
+      socket.on('session:identified', () => {
+        this.sessionConflict = false;
+        if (this.errorMsg && this.errorMsg.includes('Session deja active')) this.errorMsg = '';
+      });
+      socket.on('session:error', (evt) => {
+        if (evt?.code !== 'SESSION_CONFLICT') return;
+        this.sessionConflict = true;
+        this.profilValideSelectionne = false;
+        this.agent_matricule = '';
+        this.selectedProfile = { matricule: '', nom: '', prenom: '' };
+        this.offerCode = '';
+        localStorage.removeItem('agentMatricule');
+        localStorage.removeItem('agentDisplayName');
+        this.errorMsg = "Session deja active sur un autre poste. Si c'est une erreur, contactez votre superviseur.";
+      });
+      socket.on('force_logout', (data) => {
+        if (!data || data.reason !== 'SUPERVISOR_ACTION') return;
+        localStorage.removeItem('agentMatricule');
+        localStorage.removeItem('agentDisplayName');
+        localStorage.removeItem('agentOffer');
+        window.alert('Votre session a ete liberee par un superviseur.');
+        window.location.reload();
+      });
+
+      // Snapshot complet à la reconnexion
+      socket.on('state:snapshot', (snapshot) => {
+        if (!Array.isArray(snapshot)) return;
+        this.offers = snapshot.map(s => s.offer);
+        this.buildBlockStatus(snapshot);
+        if (!this.isPaused && this.offerCode) {
+          const selected = this.offers.find(o => o.code === this.offerCode);
+          if (!selected || Number(selected.is_active) !== 1) {
+            this.offerCode = '';
+            localStorage.removeItem('agentOffer');
+            this.errorMsg = 'L’offre sélectionnée est indisponible. Merci de choisir une offre active.';
+          }
+        }
+        this.allPauses = [];
+        for (const entry of snapshot) {
+          for (const p of entry.pauses) {
+            this.upsertPause({
+              id: p.id,
+              agent_matricule: p.agent_matricule,
+              agentName: `${p.prenom} ${p.nom}`,
+              offerCode: entry.offer.code,
+              startTime: p.start_time,
+            });
+          }
+        }
+      });
+
+      // Nouvel agent en pause
+      socket.on('pause:started', (evt) => {
+        this.upsertPause({
+          id: evt.pauseId,
+          agent_matricule: evt.agent_matricule,
+          agentName: evt.agentName,
+          offerCode: evt.offerCode,
+          startTime: evt.startTime,
+        });
+        // Mise à jour de mon état si c'est moi
+        if (evt.agent_matricule === this.agent_matricule) {
+          this.isPaused    = true;
+          this.myStartTime = evt.startTime;
+          this.myPauseId   = evt.pauseId;
+        }
+      });
+
+      // Agent revenu de pause
+      socket.on('pause:stopped', (evt) => {
+        this.removePause(evt.pauseId);
+        if (evt.agent_matricule === this.agent_matricule) {
+          this.isPaused    = false;
+          this.myStartTime = null;
+          this.myPauseId   = null;
+          this.myElapsedSec = 0;
+          this.myElapsedMin = 0;
+        }
+      });
+
+      // Mise à jour quota / blocage
+      socket.on('offer:block-status', (evt) => {
+        this.blockStatus[evt.offerCode] = {
+          canStartPause: evt.canStartPause,
+          effectiveQuota: evt.effectiveQuota,
+          currentPaused:  evt.currentPaused,
+        };
+      });
+
+      socket.on('quota:updated', (evt) => {
+        this.blockStatus[evt.offerCode] = {
+          canStartPause:  !evt.blockedForNewStarts,
+          effectiveQuota: evt.effectiveQuota,
+          currentPaused:  evt.currentPaused,
+        };
+      });
+
+      socket.on('quotas:update', (payload) => {
+        if (!Array.isArray(payload)) return;
+        this.quotasTiles = payload;
+        this.applyQuotasPayload(payload);
+      });
+
+      // Mode urgence global
+      socket.on('system:maintenance-mode', (evt) => {
+        this.maintenanceMode = evt.active;
+      });
+
+      // Paramètres système mis à jour par le superviseur
+      socket.on('system:settings-updated', (evt) => {
+        if (evt.maxPauseMinutes !== undefined) { this.maxPauseMinutes = evt.maxPauseMinutes; this.updateThresholds(); }
+      });
+
+      this._socket = socket;
+    },
+
+    // ── Dashboard helpers ─────────────────────────────
+    upsertPause(p) {
+      const idx = this.allPauses.findIndex(x => x.id === p.id);
+      if (idx >= 0) this.allPauses[idx] = p;
+      else this.allPauses.push(p);
+    },
+
+    removePause(pauseId) {
+      this.allPauses = this.allPauses.filter(p => p.id !== pauseId);
+    },
+
+    // ── Autocomplétion ───────────────────────────────
+    async fetchSuggestions() {
+      const q = this.searchText.trim();
+      this.profilValideSelectionne = false;
+      this.agent_matricule = '';
+      this.selectedProfile = { matricule: '', nom: '', prenom: '' };
+      this.persistLocal();
+      if (q.length < 2) { this.suggestions = []; this.showSuggestions = false; return; }
+      try {
+        const res  = await fetch(`/api/agent/suggestions?query=${encodeURIComponent(q)}`, {
+          cache: 'no-store',
+        });
+        const data = await res.json();
+        this.suggestions     = data.suggestions || [];
+        this.showSuggestions = this.suggestions.length > 0;
+        this.focusedSuggestion = -1;
+      } catch (e) { this.suggestions = []; }
+    },
+
+    focusSuggestion(dir) {
+      if (!this.showSuggestions) return;
+      this.focusedSuggestion = Math.max(0, Math.min(this.suggestions.length - 1, this.focusedSuggestion + dir));
+    },
+
+    selectSuggestion(idx) {
+      if (idx < 0 || idx >= this.suggestions.length) { this.showSuggestions = false; return; }
+      const s = this.suggestions[idx];
+      this.searchText = `${s.prenom} ${s.nom}`;
+      this.agent_matricule = s.agent_matricule;
+      this.selectedProfile = { matricule: s.agent_matricule, nom: s.nom, prenom: s.prenom };
+      this.profilValideSelectionne = true;
+      this.showSuggestions = false;
+      this.sessionConflict = false;
+      this.persistLocal();
+      if (this._socket && this.socketConnected && this.agent_matricule) {
+        this._socket.emit('agent:identify', { agent_matricule: this.agent_matricule, device_id: this.device_id });
+      }
+    },
+
+    hideSuggestionsDelayed() {
+      setTimeout(() => { this.showSuggestions = false; }, 150);
+    },
+
+    // ── Action pause ─────────────────────────────────
+    async togglePause() {
+      if (this.isActionLoading) return;
+      this.errorMsg        = '';
+      this.isActionLoading = true;
+
+      try {
+        if (this.sessionConflict) {
+          this.errorMsg = "Session deja active sur un autre poste. Si c'est une erreur, contactez votre superviseur.";
+          return;
+        }
+        if (this.isPaused) {
+          // Retour de pause
+          const res  = await fetch('/api/agent/pause/stop', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ agent_matricule: this.agent_matricule }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            this.errorMsg = data.error?.message || 'Erreur lors du retour de pause.';
+          }
+          // L'état est mis à jour par l'événement Socket pause:stopped
+        } else {
+          if (!this.profilValideSelectionne || !this.agent_matricule) {
+            this.errorMsg = 'Sélectionnez un profil valide dans la liste.';
+            return;
+          }
+          // Identifier l'agent et démarrer la pause
+          const identifyRes = await fetch('/api/agent/identify', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ agent_matricule: this.agent_matricule }),
+          });
+          if (!identifyRes.ok) {
+            this.clearIdentityLocal();
+            const identifyData = await identifyRes.json();
+            this.errorMsg = identifyData.error?.message || 'Profil invalide ou désactivé.';
+            return;
+          }
+          if (this._socket && this.socketConnected && this.agent_matricule) {
+            this._socket.emit('agent:identify', { agent_matricule: this.agent_matricule, device_id: this.device_id });
+          }
+          if (this.sessionConflict) {
+            this.errorMsg = "Session deja active sur un autre poste. Si c'est une erreur, contactez votre superviseur.";
+            return;
+          }
+          const res  = await fetch('/api/agent/pause/start', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ agent_matricule: this.agent_matricule, offerCode: this.offerCode }),
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            if (res.status === 429) {
+              this.blockStatus[this.offerCode] = { canStartPause: false, effectiveQuota: data.error?.fields?.quota, currentPaused: data.error?.fields?.active };
+            }
+            if (res.status === 503 && data.error?.code === 'MAINTENANCE_ACTIVE') {
+              this.maintenanceMode = true;
+            }
+            this.errorMsg = data.error?.message || 'Erreur lors du départ en pause.';
+          } else {
+            this.persistLocal();
+            // Rejoindre la room de l'offre sur le Socket
+            if (this._socket && this.offerCode) this._socket.emit('join:offer', { offerCode: this.offerCode });
+          }
+        }
+      } catch (e) {
+        this.errorMsg = 'Erreur réseau. Vérifiez votre connexion.';
+      } finally {
+        this.isActionLoading = false;
+      }
+    },
+
+    // ── Tick chrono (1s) ─────────────────────────────
+    startTick() {
+      setInterval(() => {
+        this._now = Date.now();
+        if (this.isPaused && this.myStartTime) {
+          this.myElapsedSec = Math.floor((this._now - new Date(this.myStartTime).getTime()) / 1000);
+          this.myElapsedMin = Math.floor(this.myElapsedSec / 60);
+        }
+      }, 1000),
+
+      // Effacer l'erreur après 8 secondes
+      setInterval(() => { if (this.errorMsg) this.errorMsg = ''; }, 8000);
+    },
+
+    // ── Helpers temps ─────────────────────────────────
+    elapsedSec(startTime) {
+      return Math.max(0, Math.floor((this._now - new Date(startTime).getTime()) / 1000));
+    },
+
+    elapsedMin(startTime) {
+      return Math.floor(this.elapsedSec(startTime) / 60);
+    },
+
+    formatDuration(totalSec) {
+      const m = Math.floor(totalSec / 60).toString().padStart(2, '0');
+      const s = (totalSec % 60).toString().padStart(2, '0');
+      return `${m}:${s}`;
+    },
+
+    formatQuotaCount(value) {
+      if (!Number.isFinite(value)) return '0';
+      return String(value);
+    },
+
+    formatQuotaLimit(value) {
+      return Number.isFinite(value) ? String(value) : '∞';
+    },
+
+    hashOfferId(offerId) {
+      if (Number.isInteger(offerId)) return offerId;
+      if (typeof offerId === 'number' && Number.isFinite(offerId)) return Math.trunc(offerId);
+      const str = String(offerId ?? '');
+      let hash = 0;
+      for (let i = 0; i < str.length; i += 1) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
+      }
+      return Math.abs(hash);
+    },
+
+    resolveOfferColor(offerId, savedColor) {
+      if (typeof savedColor === 'string') {
+        const normalized = savedColor.trim().toLowerCase();
+        if (/^#[0-9a-f]{6}$/.test(normalized)) return normalized;
+      }
+      const idx = this.hashOfferId(offerId) % this.pastelColors.length;
+      return this.pastelColors[idx];
+    },
+
+    resolveOfferColorByCode(offerCode) {
+      const quota = this.quotasTiles.find(q => q.code === offerCode);
+      if (quota) return this.resolveOfferColor(quota.offre_id, quota.color);
+      const offer = this.offers.find(o => o.code === offerCode);
+      if (offer) return this.resolveOfferColor(offer.id ?? offer.code, offer.color);
+      return this.resolveOfferColor(offerCode, null);
+    },
+
+    isQuotaReached(quota) {
+      if (!quota) return false;
+      if (!Number.isFinite(quota.quota_max)) return false;
+      return Number(quota.pauses_en_cours || 0) >= quota.quota_max;
+    },
+
+    changeProfile() {
+      if (this.isPaused) return;
+      const confirmed = window.confirm('Voulez-vous vraiment changer de profil ?');
+      if (!confirmed) return;
+
+      this.clearIdentityLocal();
+      this.sessionConflict = false;
+      this.errorMsg = '';
+      this.suggestions = [];
+      this.showSuggestions = false;
+      this.focusedSuggestion = -1;
+    },
+  };
+}
+</script>
+
+</body>
+</html>

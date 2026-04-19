@@ -1,0 +1,2204 @@
+<!DOCTYPE html>
+<html lang="fr" x-data="supervisorApp()" x-init="init()">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flowi - Superviseur</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          keyframes: { blink: { '0%,100%': { opacity:'1' }, '50%': { opacity:'0.2' } } },
+          animation: { blink: 'blink 1s ease-in-out infinite' }
+        }
+      }
+    }
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+
+  <style>
+    [x-cloak] { display: none !important; }
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+  </style>
+</head>
+
+<body class="bg-slate-100 min-h-screen font-sans antialiased text-slate-800">
+
+<!-- ════════════════════════════════════════════
+     ÉCRAN LOGIN
+════════════════════════════════════════════ -->
+<div
+  x-show="!isAuth"
+  x-cloak
+  class="min-h-screen flex items-center justify-center px-4"
+>
+  <div class="w-full max-w-xs bg-white rounded-2xl shadow-lg border border-slate-200 p-8">
+    <div class="text-center mb-7">
+      <div class="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-slate-900 mb-4">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" class="w-10 h-10 text-white" fill="currentColor">
+          <path d="M194,100c0,51.83-42.17,94-94,94S6,151.83,6,100,48.17,6,100,6c7.73,0,14,6.27,14,14s-6.27,14-14,14c-36.39,0-66,29.61-66,66s29.61,66,66,66,66-29.61,66-66c0-1.45.22-2.85.63-4.16.18-.58.41-1.14.66-1.68,1.44-3.13,4-5.64,7.17-7.01.11-.05.23-.09.35-.14,1.61-.64,3.36-1.01,5.2-1.01,6.28,0,11.6,4.14,13.37,9.84.41,1.32.63,2.71.63,4.16ZM72,64c-2.21,0-4,1.79-4,4v64c0,2.21,1.79,4,4,4h12c2.21,0,4-1.79,4-4v-64c0-2.21-1.79-4-4-4h-12ZM112,68v64c0,2.21,1.79,4,4,4h12c2.21,0,4-1.79,4-4v-64c0-2.21-1.79-4-4-4h-12c-2.21,0-4,1.79-4,4Z"/>
+        </svg>
+      </div>
+      <h1 class="text-lg font-bold text-slate-800">Flowi - Superviseur</h1>
+      <p class="text-xs text-slate-500 mt-1">Saisissez votre code PIN</p>
+    </div>
+
+    <form @submit.prevent="login">
+      <input
+        id="sv-login-pin"
+        type="password"
+        x-model="pinInput"
+        @keydown.enter="login"
+        placeholder="Code PIN"
+        maxlength="12"
+        autofocus
+        class="w-full border rounded-xl px-4 py-3 text-center text-xl tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-slate-400 mb-3"
+        :class="loginError ? 'border-red-400 bg-red-50' : 'border-slate-300'"
+      >
+      <p x-show="loginError" x-cloak class="text-xs text-red-500 text-center mb-3" x-text="loginError"></p>
+      <button
+        type="submit"
+        :disabled="loginLoading || !pinInput"
+        class="w-full bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white font-semibold rounded-xl py-2.5 text-sm transition"
+      >
+        <span x-show="loginLoading">Connexion…</span>
+        <span x-show="!loginLoading">Accéder</span>
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════
+     APPLICATION PRINCIPALE
+════════════════════════════════════════════ -->
+<div x-show="isAuth" x-cloak class="min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="bg-slate-900 text-white px-6 py-3 flex items-center justify-between sticky top-0 z-20 shadow">
+    <div class="flex items-center gap-2">
+      <span class="w-2 h-2 rounded-full shrink-0" :class="socketConnected ? 'bg-green-400' : 'bg-red-400 animate-pulse'"></span>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" class="w-8 h-8 mr-2 shrink-0" fill="currentColor">
+        <path d="M194,100c0,51.83-42.17,94-94,94S6,151.83,6,100,48.17,6,100,6c7.73,0,14,6.27,14,14s-6.27,14-14,14c-36.39,0-66,29.61-66,66s29.61,66,66,66,66-29.61,66-66c0-1.45.22-2.85.63-4.16.18-.58.41-1.14.66-1.68,1.44-3.13,4-5.64,7.17-7.01.11-.05.23-.09.35-.14,1.61-.64,3.36-1.01,5.2-1.01,6.28,0,11.6,4.14,13.37,9.84.41,1.32.63,2.71.63,4.16ZM72,64c-2.21,0-4,1.79-4,4v64c0,2.21,1.79,4,4,4h12c2.21,0,4-1.79,4-4v-64c0-2.21-1.79-4-4-4h-12ZM112,68v64c0,2.21,1.79,4,4,4h12c2.21,0,4-1.79,4-4v-64c0-2.21-1.79-4-4-4h-12c-2.21,0-4,1.79-4,4Z"/>
+      </svg>
+      <span class="font-bold text-sm tracking-tight">Flowi - Superviseur</span>
+    </div>
+    <div class="flex items-center gap-4">
+      <!-- Tabs -->
+      <nav class="flex gap-1 text-xs">
+        <template x-for="tab in tabs" :key="tab.id">
+          <button
+            type="button"
+            @click="navigateToTab(tab.id)"
+            :class="activeTab === tab.id ? 'bg-white text-slate-900' : 'text-slate-300 hover:text-white hover:bg-slate-700'"
+            class="px-3 py-1.5 rounded-lg font-medium transition"
+            x-text="tab.label"
+          ></button>
+        </template>
+      </nav>
+      <button @click="logout" class="text-slate-400 hover:text-white text-xs transition">Déconnexion</button>
+    </div>
+  </header>
+
+  <!-- Content -->
+  <main class="flex-1 max-w-6xl mx-auto w-full px-4 py-6 space-y-6">
+
+    <!-- ── TAB : Quotas ──────────────────────────────── -->
+    <div x-show="activeTab === 'quotas'" x-cloak>
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-bold text-slate-700">Pilotage des quotas par offre</h2>
+        <p class="text-xs text-slate-400">Priorité : Quota fixe > Calcul (présents × %) > Défaut système</p>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <template x-for="q in quotas" :key="q.offer.code">
+          <div class="bg-white rounded-xl border shadow-sm overflow-hidden"
+            :class="q.blocked ? 'border-red-200' : 'border-slate-200'">
+
+            <!-- Offre header -->
+            <div class="px-4 py-3 border-b flex items-center justify-between"
+              :class="q.blocked ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-slate-100'">
+              <div class="flex items-center gap-2 min-w-0">
+                <span
+                  class="inline-block h-3.5 w-3.5 rounded-full border border-slate-300/80 shrink-0 shadow-sm"
+                  :style="{ backgroundColor: resolveOfferColor(q.offer.id ?? q.offer.code, q.offer.color) }"
+                  :title="q.offer.color ? q.offer.color : 'Couleur pastel (défaut)'"
+                ></span>
+                <div class="min-w-0">
+                  <span class="font-bold text-sm text-slate-800" x-text="q.offer.code"></span>
+                  <span class="text-xs text-slate-500 ml-1.5" x-text="q.offer.label"></span>
+                </div>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs font-mono font-semibold" :class="q.blocked ? 'text-red-600' : 'text-slate-600'"
+                  x-text="q.currentPaused + ' / ' + q.effectiveQuota"></span>
+                <span x-show="q.blocked"
+                  class="text-xs bg-red-100 text-red-600 rounded-full px-1.5 py-0.5 font-medium">Bloqué</span>
+              </div>
+            </div>
+
+            <!-- Formulaire quota -->
+            <div class="p-4 space-y-3">
+              <!-- Quota fixe -->
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">
+                  Quota fixe
+                  <span class="ml-1 text-slate-400">(vide = désactivé)</span>
+                </label>
+                <input
+                  type="number" min="0" step="1"
+                  :placeholder="'Défaut: ' + q.offer.default_quota"
+                  x-model.number="q._edit.fixedQuota"
+                  class="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums"
+                >
+              </div>
+
+              <!-- Calcul par présents -->
+              <div class="grid grid-cols-2 gap-2">
+                <div>
+                  <label class="block text-xs text-slate-500 mb-1">Présents</label>
+                  <input type="number" min="0" step="1"
+                    x-model.number="q._edit.presentCount"
+                    placeholder="0"
+                    class="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums">
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-500 mb-1">% autorisé</label>
+                  <input type="number" min="0" max="100" step="1"
+                    x-model.number="q._edit.allowedPercent"
+                    placeholder="0"
+                    class="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums">
+                </div>
+              </div>
+
+              <!-- Quota effectif calculé (preview) -->
+              <div class="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
+                Quota effectif actuel :
+                <span class="font-semibold text-slate-800" x-text="q.effectiveQuota"></span>
+              </div>
+
+              <!-- Feedback erreur -->
+              <p x-show="q._saveError" x-cloak class="text-xs text-red-500" x-text="q._saveError"></p>
+
+              <!-- Bouton -->
+              <button
+                @click="saveQuota(q)"
+                :disabled="q._saving"
+                class="w-full bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg py-2 transition"
+              >
+                <span x-show="q._saving">Enregistrement…</span>
+                <span x-show="!q._saving">Enregistrer</span>
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- ── TAB : Live ───────────────────────────────── -->
+    <div x-show="activeTab === 'live'" x-cloak>
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h2 class="text-sm font-bold text-slate-700">Agents en pause — Temps réel</h2>
+        <div class="flex items-center gap-3">
+          <!-- Compteur -->
+          <span class="text-xs font-mono bg-slate-200 text-slate-600 rounded-full px-2.5 py-0.5"
+            x-text="livePauses.length + ' en pause'"></span>
+
+          <!-- Bouton MODE URGENCE -->
+          <button
+            @click="toggleMaintenance"
+            :disabled="maintenanceLoading"
+            :class="maintenanceMode
+              ? 'bg-red-600 hover:bg-red-700 text-white ring-2 ring-red-400 ring-offset-1 animate-pulse'
+              : 'bg-slate-200 hover:bg-red-100 text-slate-700 hover:text-red-700 border border-slate-300'"
+            class="flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all select-none disabled:opacity-50"
+          >
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+            </svg>
+            <span x-text="maintenanceMode ? 'MODE URGENCE ACTIF — Cliquer pour désactiver' : 'MODE URGENCE'"></span>
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <table class="w-full text-sm" x-show="livePauses.length > 0">
+          <thead>
+            <tr class="text-xs text-slate-400 uppercase tracking-wider border-b border-slate-100 bg-slate-50">
+              <th class="px-5 py-3 text-left font-medium">Agent</th>
+              <th class="px-5 py-3 text-left font-medium">Offre</th>
+              <th class="px-5 py-3 text-left font-medium">Depuis</th>
+              <th class="px-5 py-3 text-right font-medium">Écoulé</th>
+              <th class="px-5 py-3 text-right font-medium">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="p in livePauses" :key="p.id">
+              <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+                <td class="px-5 py-3 font-medium text-slate-700" x-text="p.agentName"></td>
+                <td class="px-5 py-3">
+                  <span
+                    class="inline-block text-slate-900 text-xs font-mono rounded px-1.5 py-0.5 border border-slate-200"
+                    :style="{ backgroundColor: resolveOfferColorByCode(p.offerCode) }"
+                    x-text="p.offerCode"></span>
+                </td>
+                <td class="px-5 py-3 text-slate-500 text-xs tabular-nums" x-text="formatTime(p.startTime)"></td>
+                <td class="px-5 py-3 text-right font-mono font-semibold tabular-nums">
+                  <span
+                    :class="{
+                      'text-red-500 animate-blink':  elapsedMin(p.startTime) >= thresholdRed,
+                      'text-orange-500':             elapsedMin(p.startTime) >= thresholdOrange && elapsedMin(p.startTime) < thresholdRed,
+                      'text-slate-700':              elapsedMin(p.startTime) < thresholdOrange
+                    }"
+                    x-text="formatDuration(elapsedSec(p.startTime))">
+                  </span>
+                </td>
+                <td class="px-5 py-3 text-right">
+                  <button
+                    @click="forceStop(p)"
+                    :disabled="p._forcing"
+                    class="text-xs text-red-500 hover:text-red-700 hover:underline disabled:opacity-40 transition font-medium"
+                  >
+                    <span x-show="p._forcing">…</span>
+                    <span x-show="!p._forcing">Forcer retour</span>
+                  </button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <div x-show="livePauses.length === 0" class="py-14 text-center text-sm text-slate-400">
+          <svg class="w-8 h-8 mx-auto mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+              d="M9 12l2 2 4-4M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          Aucun agent en pause.
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TAB : Historique ────────────────────────── -->
+    <div x-show="activeTab === 'history'" x-cloak>
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h2 class="text-sm font-bold text-slate-700">Historique des pauses</h2>
+        <div class="flex flex-wrap gap-2 items-center text-xs">
+          <!-- Filtre offre -->
+          <select x-model="histFilter.offerCode" @change="loadHistory(1)"
+            class="border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600 focus:outline-none focus:ring-1 focus:ring-slate-400">
+            <option value="">Toutes les offres</option>
+            <template x-for="o in histOffers" :key="o.code">
+              <option :value="o.code" x-text="o.label"></option>
+            </template>
+          </select>
+          <!-- Dates -->
+          <input type="date" x-model="histFilter.from" @change="loadHistory(1)"
+            class="border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600 focus:outline-none focus:ring-1 focus:ring-slate-400">
+          <input type="date" x-model="histFilter.to" @change="loadHistory(1)"
+            class="border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600 focus:outline-none focus:ring-1 focus:ring-slate-400">
+          <button @click="loadHistory(1)" class="bg-slate-900 hover:bg-slate-700 text-white rounded-lg px-3 py-1.5 font-medium transition">
+            Filtrer
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm" x-show="histRows.length > 0">
+            <thead>
+              <tr class="text-xs text-slate-400 uppercase tracking-wider border-b border-slate-100 bg-slate-50">
+                <!-- Entêtes cliquables pour tri local -->
+                <template x-for="col in histCols" :key="col.key">
+                  <th
+                    class="px-4 py-3 text-left font-medium cursor-pointer hover:text-slate-600 select-none whitespace-nowrap"
+                    @click="sortHistory(col.key)"
+                  >
+                    <span x-text="col.label"></span>
+                    <span x-show="histSort.key === col.key" class="ml-1 text-slate-500"
+                      x-text="histSort.dir === 'asc' ? '↑' : '↓'"></span>
+                  </th>
+                </template>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="row in histSorted" :key="row.id">
+                <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+                  <td class="px-4 py-3 font-medium text-slate-700" x-text="`${row.prenom} ${row.nom}`"></td>
+                  <td class="px-4 py-3">
+                    <span class="inline-block bg-slate-100 text-slate-600 text-xs font-mono rounded px-1.5 py-0.5"
+                      x-text="row.offer_code"></span>
+                  </td>
+                  <td class="px-4 py-3 text-slate-500 text-xs tabular-nums" x-text="formatDate(row.start_time)"></td>
+                  <td class="px-4 py-3 text-slate-500 text-xs tabular-nums" x-text="formatTime(row.start_time)"></td>
+                  <td class="px-4 py-3 text-slate-500 text-xs tabular-nums" x-text="row.end_time ? formatTime(row.end_time) : '—'"></td>
+                  <td class="px-4 py-3 font-mono tabular-nums text-xs"
+                    x-text="row.duration_seconds != null ? formatDuration(row.duration_seconds) : '—'"></td>
+                  <td class="px-4 py-3">
+                    <span
+                      class="inline-block rounded-full px-2 py-0.5 text-xs font-medium"
+                      :class="{
+                        'bg-slate-100 text-slate-600':  row.end_reason === 'manual',
+                        'bg-amber-100 text-amber-700':  row.end_reason === 'auto_15m',
+                        'bg-red-100 text-red-600':      row.end_reason === 'supervisor_forced',
+                      }"
+                      x-text="endReasonLabel(row.end_reason, row)"
+                    ></span>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <div x-show="histRows.length === 0 && !histLoading" class="py-14 text-center text-sm text-slate-400">
+            Aucun historique disponible.
+          </div>
+          <div x-show="histLoading" class="py-10 text-center text-sm text-slate-400">Chargement…</div>
+        </div>
+
+        <!-- Pagination -->
+        <div x-show="histPagination.pages > 1"
+          class="px-5 py-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
+          <span x-text="'Page ' + histPagination.page + ' / ' + histPagination.pages + '  (' + histPagination.total + ' pauses)'"></span>
+          <div class="flex gap-2">
+            <button @click="loadHistory(histPagination.page - 1)"
+              :disabled="histPagination.page <= 1"
+              class="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-30 transition">
+              ← Préc.
+            </button>
+            <button @click="loadHistory(histPagination.page + 1)"
+              :disabled="histPagination.page >= histPagination.pages"
+              class="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-30 transition">
+              Suiv. →
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TAB : Paramètres ────────────────────────── -->
+    <div x-show="activeTab === 'directory'" x-cloak>
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-bold text-slate-700">Annuaire agents</h2>
+        <button
+          @click="loadDirectory(true)"
+          :disabled="directoryLoading"
+          class="text-xs border border-slate-200 bg-white hover:bg-slate-50 rounded-lg px-3 py-1.5 transition disabled:opacity-40"
+        >
+          <span x-show="directoryLoading">Chargement…</span>
+          <span x-show="!directoryLoading">Rafraîchir</span>
+        </button>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 mb-4">
+        <h3 class="text-sm font-semibold text-slate-700 mb-3">Ajouter un agent</h3>
+        <form @submit.prevent="createDirectoryAgent" class="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <input
+            type="text"
+            x-model="directoryForm.matricule"
+            placeholder="Matricule"
+            class="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+          >
+          <input
+            type="text"
+            x-model="directoryForm.nom"
+            placeholder="Nom"
+            class="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+          >
+          <input
+            type="text"
+            x-model="directoryForm.prenom"
+            placeholder="Prénom"
+            class="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+          >
+          <button
+            type="submit"
+            :disabled="directorySaving"
+            class="bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
+          >
+            <span x-show="directorySaving">Ajout…</span>
+            <span x-show="!directorySaving">Ajouter l'agent</span>
+          </button>
+        </form>
+        <p x-show="directoryError" x-cloak class="text-xs text-red-500 mt-2" x-text="directoryError"></p>
+        <p x-show="directoryMsg" x-cloak class="text-xs text-green-600 mt-2" x-text="directoryMsg"></p>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm" x-show="directoryRows.length > 0">
+            <thead>
+              <tr class="text-xs text-slate-400 uppercase tracking-wider border-b border-slate-100 bg-slate-50">
+                <th class="px-4 py-3 text-left font-medium">Matricule</th>
+                <th class="px-4 py-3 text-left font-medium">Nom</th>
+                <th class="px-4 py-3 text-left font-medium">Prénom</th>
+                <th class="px-4 py-3 text-left font-medium">Statut</th>
+                <th class="px-4 py-3 text-left font-medium">Session</th>
+                <th class="px-4 py-3 text-right font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="agent in directoryRows" :key="agent.matricule">
+                <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+                  <td class="px-4 py-3 font-mono text-xs text-slate-700" x-text="agent.matricule"></td>
+                  <td class="px-4 py-3 font-medium text-slate-700" x-text="agent.nom"></td>
+                  <td class="px-4 py-3 text-slate-700" x-text="agent.prenom"></td>
+                  <td class="px-4 py-3">
+                    <span
+                      class="inline-block rounded-full px-2 py-0.5 text-xs font-medium"
+                      :class="agent.is_active === 1 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
+                      x-text="agent.is_active === 1 ? 'Actif' : 'Inactif'"
+                    ></span>
+                  </td>
+                  <td class="px-4 py-3">
+                    <div class="inline-flex items-center gap-2">
+                      <span
+                        class="inline-block h-2.5 w-2.5 rounded-full"
+                        :class="agent.isOnline ? 'bg-green-500' : 'bg-slate-300'"
+                        :title="agent.isOnline ? 'Session active' : 'Hors ligne'"
+                      ></span>
+                      <button
+                        x-show="agent.isOnline"
+                        @click="releaseDirectorySession(agent)"
+                        :disabled="agent._releasing"
+                        class="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition"
+                        title="Libérer la session"
+                      >
+                        <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M16 11V7a4 4 0 10-8 0v4m-2 0h12a1 1 0 011 1v7a1 1 0 01-1 1H6a1 1 0 01-1-1v-7a1 1 0 011-1z"/>
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 15l-2-2m0 0l-2 2m2-2v5"/>
+                        </svg>
+                        <span x-show="agent._releasing">…</span>
+                        <span x-show="!agent._releasing">Libérer</span>
+                      </button>
+                    </div>
+                  </td>
+                  <td class="px-4 py-3 text-right">
+                    <button
+                      @click="toggleDirectoryAgentStatus(agent)"
+                      :disabled="agent._saving"
+                      class="text-xs font-medium rounded-lg px-3 py-1.5 transition disabled:opacity-40"
+                      :class="agent.is_active === 1
+                        ? 'text-red-600 hover:bg-red-50'
+                        : 'text-green-600 hover:bg-green-50'"
+                      x-text="agent.is_active === 1 ? 'Désactiver' : 'Activer'"
+                    ></button>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <div x-show="directoryRows.length === 0 && !directoryLoading" class="py-14 text-center text-sm text-slate-400">
+          Aucun agent dans l'annuaire.
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TAB : Paramètres ────────────────────────── -->
+    <div x-show="activeTab === 'settings'" x-cloak>
+      <h2 class="text-sm font-bold text-slate-700 mb-4">Paramètres système</h2>
+
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm divide-y divide-slate-100">
+
+        <!-- Rétention historique -->
+        <div class="px-5 py-5">
+          <label class="block text-sm font-medium text-slate-700 mb-1">Rétention des données historiques</label>
+          <p class="text-xs text-slate-500 mb-3">
+            Les pauses terminées datant de plus de N jours sont supprimées automatiquement.
+          </p>
+          <div class="flex gap-3 items-center">
+            <input
+              type="number" min="1" step="1"
+              x-model.number="settings.historyRetentionDays"
+              class="w-28 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums"
+            >
+            <span class="text-sm text-slate-500">jours</span>
+            <button
+              @click="saveRetention"
+              :disabled="settingsSaving"
+              class="ml-auto bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
+            >
+              <span x-show="settingsSaving">Enregistrement…</span>
+              <span x-show="!settingsSaving">Enregistrer</span>
+            </button>
+          </div>
+          <p x-show="settingsMsg" x-cloak
+            class="mt-2 text-xs"
+            :class="settingsMsgOk ? 'text-green-600' : 'text-red-500'"
+            x-text="settingsMsg"></p>
+        </div>
+
+        <!-- Durée maximale de pause -->
+        <div class="px-5 py-5">
+          <label class="block text-sm font-medium text-slate-700 mb-1">Durée maximale d'une pause</label>
+          <p class="text-xs text-slate-500 mb-3">
+            Au-delà de cette durée, le retour est automatiquement forcé par le serveur.
+          </p>
+          <div class="flex gap-3 items-center">
+            <input
+              type="number" min="1" max="120" step="1"
+              x-model.number="settings.maxPauseMinutes"
+              class="w-28 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums"
+            >
+            <span class="text-sm text-slate-500">minutes</span>
+            <button
+              @click="saveMaxPause"
+              :disabled="maxPauseSaving"
+              class="ml-auto bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
+            >
+              <span x-show="maxPauseSaving">Enregistrement…</span>
+              <span x-show="!maxPauseSaving">Enregistrer</span>
+            </button>
+          </div>
+          <p x-show="maxPauseMsg" x-cloak
+            class="mt-2 text-xs"
+            :class="maxPauseMsgOk ? 'text-green-600' : 'text-red-500'"
+            x-text="maxPauseMsg"></p>
+        </div>
+
+        <!-- Gestion des offres -->
+        <div class="px-5 py-5">
+          <div class="flex items-center justify-between mb-3">
+            <label class="block text-sm font-medium text-slate-700">Gestion des offres</label>
+            <button
+              @click="startCreateOffer"
+              type="button"
+              class="text-xs border border-slate-200 bg-white hover:bg-slate-50 rounded-lg px-3 py-1.5 transition"
+            >
+              Nouvelle offre
+            </button>
+          </div>
+
+          <!-- Création : panneau déplié sous le titre -->
+          <div
+            x-show="expandedOfferCode === '__new__'"
+            x-cloak
+            class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4"
+          >
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-sm font-medium text-slate-800">Nouvelle offre</span>
+              <button type="button" @click="cancelOfferPanel" class="text-xs text-slate-500 hover:text-slate-800">
+                Annuler
+              </button>
+            </div>
+            <form @submit.prevent="saveOffer" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Code</label>
+                <input
+                  type="text"
+                  x-model="offerForm.code"
+                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-slate-400"
+                >
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Libellé</label>
+                <input
+                  type="text"
+                  x-model="offerForm.label"
+                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                >
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Quota par défaut</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  x-model.number="offerForm.default_quota"
+                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-slate-400"
+                >
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Couleur personnalisée</label>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <input
+                    type="color"
+                    x-model="offerForm.color"
+                    :disabled="offerForm.useDefaultColor"
+                    class="h-10 w-14 border border-slate-300 rounded-md bg-white disabled:opacity-40"
+                  >
+                  <button
+                    type="button"
+                    @click="resetOfferColor"
+                    class="text-xs border border-slate-200 bg-white hover:bg-slate-50 rounded-lg px-2.5 py-1.5 transition"
+                  >
+                    Réinitialiser la couleur
+                  </button>
+                </div>
+                <label class="mt-2 inline-flex items-center gap-2 text-xs text-slate-500">
+                  <input type="checkbox" x-model="offerForm.useDefaultColor">
+                  Utiliser la couleur par défaut (pastel automatique)
+                </label>
+              </div>
+              <div class="md:col-span-2 flex items-center gap-3 flex-wrap">
+                <button
+                  type="submit"
+                  :disabled="offerSaving"
+                  class="bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
+                >
+                  <span x-show="offerSaving">Enregistrement…</span>
+                  <span x-show="!offerSaving">Créer offre</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div class="space-y-2 mb-2">
+            <template x-for="offer in offersAdminRows" :key="offer.code">
+              <div class="w-full rounded-lg border border-slate-200 bg-white overflow-hidden transition">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-3 py-2.5">
+                  <div class="min-w-0">
+                    <div class="text-xs font-mono text-slate-600" x-text="offer.code"></div>
+                    <div class="text-sm font-medium text-slate-800 truncate" x-text="offer.label"></div>
+                    <div class="mt-1 flex items-center gap-2 flex-wrap">
+                      <span class="text-xs rounded-full px-2 py-0.5"
+                        :class="Number(offer.is_active) === 1 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
+                        x-text="Number(offer.is_active) === 1 ? 'Active' : 'Inactive'"></span>
+                      <span class="text-xs rounded-full px-2 py-0.5 bg-slate-100 text-slate-600"
+                        x-text="'Quota défaut: ' + offer.default_quota"></span>
+                      <span
+                        class="inline-block h-3 w-3 rounded-full border border-slate-300 shrink-0 shadow-sm"
+                        :style="{ backgroundColor: resolveOfferColor(offer.id ?? offer.code, offer.color) }"
+                        :title="offer.color ? offer.color : 'Couleur pastel (défaut)'"
+                      ></span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2 flex-wrap shrink-0">
+                    <button
+                      type="button"
+                      @click="openEditOffer(offer)"
+                      :class="expandedOfferCode === offer.code ? 'bg-slate-200 border-slate-300' : 'bg-white border-slate-200'"
+                      class="text-xs rounded-lg px-2.5 py-1.5 border hover:bg-slate-50 transition"
+                    >
+                      Modifier
+                    </button>
+                    <button
+                      type="button"
+                      x-show="offer.is_active === 1"
+                      @click="deleteOffer(offer)"
+                      :disabled="offerSaving"
+                      class="text-xs rounded-lg px-2 py-1 border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Supprimer
+                    </button>
+                    <button
+                      type="button"
+                      x-show="offer.is_active === 0"
+                      @click="reactivateOffer(offer)"
+                      :disabled="offerSaving"
+                      class="text-xs rounded-lg px-2 py-1 border border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      Réactiver
+                    </button>
+                  </div>
+                </div>
+
+                <div
+                  x-show="expandedOfferCode === offer.code"
+                  x-cloak
+                  class="border-t border-slate-100 bg-slate-50 px-3 py-3"
+                >
+                  <div class="flex items-center justify-between mb-3">
+                    <span class="text-xs font-medium text-slate-700">Modifier <span class="font-mono" x-text="offer.code"></span></span>
+                    <button type="button" @click="cancelOfferPanel" class="text-xs text-slate-500 hover:text-slate-800">
+                      Annuler
+                    </button>
+                  </div>
+                  <form @submit.prevent="saveOffer" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label class="block text-xs text-slate-500 mb-1">Code</label>
+                      <input
+                        type="text"
+                        x-model="offerForm.code"
+                        disabled
+                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono bg-slate-100 cursor-not-allowed"
+                      >
+                    </div>
+                    <div>
+                      <label class="block text-xs text-slate-500 mb-1">Libellé</label>
+                      <input
+                        type="text"
+                        x-model="offerForm.label"
+                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                      >
+                    </div>
+                    <div>
+                      <label class="block text-xs text-slate-500 mb-1">Quota par défaut</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        x-model.number="offerForm.default_quota"
+                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-slate-400"
+                      >
+                    </div>
+                    <div>
+                      <label class="block text-xs text-slate-500 mb-1">Couleur personnalisée</label>
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <input
+                          type="color"
+                          x-model="offerForm.color"
+                          :disabled="offerForm.useDefaultColor"
+                          class="h-10 w-14 border border-slate-300 rounded-md bg-white disabled:opacity-40"
+                        >
+                        <button
+                          type="button"
+                          @click="resetOfferColor"
+                          class="text-xs border border-slate-200 bg-white hover:bg-slate-50 rounded-lg px-2.5 py-1.5 transition"
+                        >
+                          Réinitialiser la couleur
+                        </button>
+                      </div>
+                      <label class="mt-2 inline-flex items-center gap-2 text-xs text-slate-500">
+                        <input type="checkbox" x-model="offerForm.useDefaultColor">
+                        Utiliser la couleur par défaut (pastel automatique)
+                      </label>
+                    </div>
+                    <div class="md:col-span-2 flex items-center gap-3 flex-wrap">
+                      <button
+                        type="submit"
+                        :disabled="offerSaving"
+                        class="bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
+                      >
+                        <span x-show="offerSaving">Enregistrement…</span>
+                        <span x-show="!offerSaving">Mettre à jour offre</span>
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </template>
+            <div x-show="!offersAdminLoading && offersAdminRows.length === 0" class="text-xs text-slate-400">
+              Aucune offre disponible.
+            </div>
+          </div>
+
+          <p x-show="offerMsg" x-cloak class="mt-2 text-xs"
+            :class="offerMsgOk ? 'text-green-600' : 'text-red-500'"
+            x-text="offerMsg"></p>
+          <p x-show="offerError" x-cloak class="mt-2 text-xs text-red-500" x-text="offerError"></p>
+        </div>
+
+        <!-- Sécurité : PIN superviseur -->
+        <div class="px-5 py-5">
+          <h3 class="text-sm font-semibold text-slate-800 mb-1">Sécurité</h3>
+          <label class="block text-sm font-medium text-slate-700 mb-1">Code PIN superviseur</label>
+          <p class="text-xs text-slate-500 mb-3">
+            Définissez un code à 4 à 6 chiffres pour l’accès à cette console. Laissez le champ vide pour conserver le code actuel.
+          </p>
+          <div class="flex flex-wrap gap-3 items-center">
+            <input
+              type="password"
+              autocomplete="new-password"
+              inputmode="numeric"
+              pattern="[0-9]*"
+              maxlength="6"
+              x-model="supervisorPinInput"
+              :placeholder="supervisorPinConfigured ? 'Code configuré' : 'Nouveau code PIN'"
+              class="w-full max-w-xs border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums"
+            >
+            <button
+              type="button"
+              @click="saveSupervisorPin()"
+              :disabled="supervisorPinSaving"
+              class="bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
+            >
+              <span x-show="supervisorPinSaving">Enregistrement…</span>
+              <span x-show="!supervisorPinSaving">Enregistrer le code</span>
+            </button>
+          </div>
+          <p x-show="supervisorPinMsg" x-cloak
+            class="mt-2 text-xs"
+            :class="supervisorPinMsgOk ? 'text-green-600' : 'text-red-500'"
+            x-text="supervisorPinMsg"></p>
+        </div>
+
+        <!-- Infos connexion -->
+        <div class="px-5 py-4 text-xs text-slate-400 flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full shrink-0"
+            :class="socketConnected ? 'bg-green-400' : 'bg-red-400 animate-pulse'"></span>
+          <span x-text="socketConnected ? 'Socket.io connecté' : 'Socket.io déconnecté'"></span>
+        </div>
+      </div>
+
+      <!-- Mises à jour OTA (vérification + paramètres dépôt) -->
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm mt-6">
+        <div class="px-5 py-4 border-b border-slate-100">
+          <h3 class="text-sm font-semibold text-slate-700">Vérification et installation</h3>
+          <p class="text-xs text-slate-500 mt-0.5">Contrôle de version par rapport à GitHub, téléchargement de la release et application sur ce serveur.</p>
+        </div>
+
+        <!-- Vérification version -->
+        <div class="px-5 py-4 space-y-3 border-b border-slate-100">
+          <div class="flex items-center gap-3">
+            <button
+              @click="checkUpdate"
+              :disabled="otaChecking || otaRunning"
+              class="bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
+            >
+              <span x-show="otaChecking">Vérification…</span>
+              <span x-show="!otaChecking">Vérifier les mises à jour</span>
+            </button>
+            <span x-show="otaCheckResult" x-cloak
+              class="text-xs font-mono"
+              :class="otaCheckResult?.updateAvailable ? 'text-green-600 font-semibold' : 'text-slate-500'"
+              x-text="otaCheckResult?.updateAvailable
+                ? `Mise à jour disponible : v${otaCheckResult.remoteVersion} (local : v${otaCheckResult.localVersion})`
+                : (otaCheckResult ? `À jour (v${otaCheckResult.localVersion})` : '')"
+            ></span>
+          </div>
+          <div x-show="otaCheckResult?.releaseUrl" x-cloak class="text-xs text-slate-400">
+            <a :href="otaCheckResult?.releaseUrl" target="_blank" rel="noopener"
+              class="text-blue-600 hover:underline" x-text="otaCheckResult?.releaseName || 'Voir la release'"></a>
+            <span x-show="otaCheckResult?.publishedAt" x-cloak
+              x-text="' — Publiée le ' + (otaCheckResult?.publishedAt ? formatTime(otaCheckResult.publishedAt) : '')"></span>
+          </div>
+          <p x-show="otaCheckError" x-cloak class="text-xs text-red-500" x-text="otaCheckError"></p>
+        </div>
+
+        <!-- Lancer la mise à jour -->
+        <div class="px-5 py-4 border-b border-slate-100 flex items-center gap-4">
+          <button
+            @click="launchUpdate"
+            :disabled="otaRunning || otaChecking || !otaCheckResult?.updateAvailable"
+            class="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:opacity-40 text-white text-xs font-bold rounded-lg px-4 py-2 transition"
+          >
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+            </svg>
+            <span x-show="otaRunning">Mise à jour en cours…</span>
+            <span x-show="!otaRunning">Appliquer la mise à jour</span>
+          </button>
+          <span x-show="otaRunning" class="text-xs text-amber-600 font-medium animate-pulse">
+            Ne pas fermer cette page
+          </span>
+          <p x-show="otaLaunchError" x-cloak class="text-xs text-red-500" x-text="otaLaunchError"></p>
+        </div>
+
+        <!-- Console logs -->
+        <div class="px-5 py-4 border-b border-slate-100">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-medium text-slate-600">Console</span>
+            <button @click="otaLogs = []" class="text-xs text-slate-400 hover:text-slate-600 transition">Effacer</button>
+          </div>
+          <div
+            x-ref="otaConsole"
+            class="bg-slate-900 text-green-300 font-mono text-xs rounded-lg p-3 h-48 overflow-y-auto space-y-0.5"
+          >
+            <template x-for="(log, i) in otaLogs" :key="i">
+              <div :class="{
+                'text-red-400':   log.stream === 'stderr',
+                'text-yellow-300': log.stream === 'system',
+                'text-green-300':  log.stream === 'stdout',
+              }" x-text="log.line"></div>
+            </template>
+            <div x-show="otaLogs.length === 0" class="text-slate-500 italic">En attente de logs…</div>
+          </div>
+        </div>
+
+        <!-- Sous-section : dépôt GitHub -->
+        <div class="px-5 py-5">
+          <h4 class="text-sm font-semibold text-slate-700 mb-1">Dépôt et authentification</h4>
+          <p class="text-xs text-slate-500 mb-3">
+            Cible GitHub utilisée pour les contrôles de version et le téléchargement : propriétaire, nom du dépôt et jeton (PAT) si le dépôt est privé.
+          </p>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+            <div>
+              <label class="block text-xs text-slate-500 mb-1">Propriétaire du dépôt</label>
+              <input
+                type="text"
+                autocomplete="off"
+                x-model="settings.github_owner"
+                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+              >
+            </div>
+            <div>
+              <label class="block text-xs text-slate-500 mb-1">Nom du dépôt</label>
+              <input
+                type="text"
+                autocomplete="off"
+                x-model="settings.github_repo"
+                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+              >
+            </div>
+            <div class="md:col-span-2">
+              <label class="block text-xs text-slate-500 mb-1">Token d’accès (PAT)</label>
+              <input
+                type="password"
+                autocomplete="new-password"
+                x-model="githubTokenInput"
+                :placeholder="githubTokenConfigured ? 'Configuré' : 'Optionnel'"
+                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+              >
+              <p class="mt-1 text-xs text-slate-400">Optionnel — pour dépôts privés. Laissez vide pour conserver le token actuel ; utilisez « Supprimer le token » pour l’effacer.</p>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              @click="saveGithubOta()"
+              :disabled="githubOtaSaving"
+              class="bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
+            >
+              <span x-show="githubOtaSaving">Enregistrement…</span>
+              <span x-show="!githubOtaSaving">Enregistrer</span>
+            </button>
+            <button
+              type="button"
+              @click="saveGithubOtaClearToken()"
+              :disabled="githubOtaSaving || !githubTokenConfigured"
+              class="text-xs border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 rounded-lg px-3 py-2 transition"
+            >
+              Supprimer le token
+            </button>
+          </div>
+          <p x-show="githubOtaMsg" x-cloak
+            class="mt-2 text-xs"
+            :class="githubOtaMsgOk ? 'text-green-600' : 'text-red-500'"
+            x-text="githubOtaMsg"></p>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+</div>
+
+<!-- ════════════════════════════════════════════
+     ALPINE APP
+════════════════════════════════════════════ -->
+<script>
+const SUPERVISOR_TAB_IDS = new Set(['quotas', 'live', 'history', 'directory', 'settings']);
+
+function initialActiveTabFromHash() {
+  if (typeof window === 'undefined') return 'live';
+  const raw = (window.location.hash || '').replace(/^#/, '').trim();
+  return SUPERVISOR_TAB_IDS.has(raw) ? raw : 'live';
+}
+
+function supervisorApp() {
+  return {
+    // ── Auth ─────────────────────────────────────
+    isAuth:       false,
+    pinInput:     '',
+    loginError:   '',
+    loginLoading: false,
+
+    // ── Navigation ───────────────────────────────
+    activeTab: initialActiveTabFromHash(),
+    _supervisorTabRoutingBound: false,
+    tabs: [
+      { id: 'live',     label: 'Live' },
+      { id: 'quotas',   label: 'Quotas' },
+      { id: 'history',  label: 'Historique' },
+      { id: 'directory', label: 'Annuaire' },
+      { id: 'settings', label: 'Paramètres' },
+    ],
+
+    // ── Socket ───────────────────────────────────
+    socketConnected: false,
+    _socket: null,
+
+    // ── Quotas ───────────────────────────────────
+    quotas: [],  // augmentés de _edit, _saving, _saveError
+
+    // ── Live ─────────────────────────────────────
+    livePauses: [], // { id, agent_matricule, nom, prenom, agentName, offerCode, startTime, _forcing }
+    _tick: null,
+    _now: Date.now(),
+    thresholdRed:    14,
+    thresholdOrange: 12,
+
+    updateThresholds() {
+      const m = this.settings?.maxPauseMinutes ?? 15;
+      this.thresholdRed    = Math.max(1, m - 1);
+      this.thresholdOrange = Math.max(1, m - 3);
+    },
+
+    // ── Historique ───────────────────────────────
+    histRows:       [],
+    histLoading:    false,
+    histPagination: { page: 1, limit: 50, total: 0, pages: 0 },
+    histFilter:     { offerCode: '', from: '', to: '' },
+    histOffers:     [],
+    histSort:       { key: 'start_time', dir: 'desc' },
+    histCols: [
+      { key: 'agent_name',  label: 'Agent' },
+      { key: 'offer_code',  label: 'Offre' },
+      { key: 'start_date',  label: 'Date' },
+      { key: 'start_time',  label: 'Heure début' },
+      { key: 'end_time',    label: 'Heure fin' },
+      { key: 'duration_seconds', label: 'Durée' },
+      { key: 'end_reason',  label: 'Motif' },
+    ],
+
+    // ── Annuaire ────────────────────────────────
+    directoryRows: [],
+    directoryLoading: false,
+    directoryLoaded: false,
+    directorySaving: false,
+    directoryError: '',
+    directoryMsg: '',
+    directoryForm: { matricule: '', nom: '', prenom: '' },
+
+    // ── Offres (admin) ────────────────────────────
+    offersAdminRows: [],
+    offersAdminLoading: false,
+    offerForm: {
+      mode: 'create',
+      originalCode: '',
+      code: '',
+      label: '',
+      default_quota: 2,
+      color: '#000000',
+      useDefaultColor: true,
+    },
+    offerSaving: false,
+    offerError: '',
+    offerMsg: '',
+    offerMsgOk: true,
+    /** `null` | `'__new__'` | code offre — un seul panneau ouvert */
+    expandedOfferCode: null,
+
+    get histSorted() {
+      const rows = [...this.histRows];
+      const { key, dir } = this.histSort;
+      rows.sort((a, b) => {
+        const valueForSort = (row, sortKey) => {
+          if (sortKey === 'start_date') return row.start_time ?? '';
+          return row[sortKey] ?? '';
+        };
+        const va = valueForSort(a, key);
+        const vb = valueForSort(b, key);
+        if (va < vb) return dir === 'asc' ? -1 :  1;
+        if (va > vb) return dir === 'asc' ?  1 : -1;
+        return 0;
+      });
+      return rows;
+    },
+
+    // ── Mode urgence (maintenance) ───────────────
+    maintenanceMode:    false,
+    maintenanceLoading: false,
+
+    // ── OTA ──────────────────────────────────────
+    otaChecking:     false,
+    otaCheckResult:  null,
+    otaCheckError:   '',
+    otaRunning:      false,
+    otaLaunchError:  '',
+    otaLogs:         [],
+
+    // ── Paramètres ───────────────────────────────
+    settings:       { historyRetentionDays: 30, maxPauseMinutes: 15, github_owner: '', github_repo: '' },
+    githubTokenConfigured: false,
+    githubTokenInput:      '',
+    githubOtaSaving:       false,
+    githubOtaMsg:          '',
+    githubOtaMsgOk:        true,
+    supervisorPinConfigured: false,
+    supervisorPinInput:      '',
+    supervisorPinSaving:     false,
+    supervisorPinMsg:        '',
+    supervisorPinMsgOk:      true,
+    settingsSaving: false,
+    settingsMsg:    '',
+    settingsMsgOk:  true,
+    maxPauseSaving: false,
+    maxPauseMsg:    '',
+    maxPauseMsgOk:  true,
+
+    // ── Init ─────────────────────────────────────
+    async init() {
+      await this.checkAuth();
+      if (!this.isAuth) return;
+      // Aligner l’URL (hash) et activeTab AVANT $watch(immediate), sinon chargements lazy ignorés ou en course d’écrasement.
+      this.syncSupervisorTabFromUrl();
+      this.ensureSupervisorTabRouting();
+      await this.loadAll();
+      // Après stabilisation réseau (quotas/auth) : re-fetch annuaire si onglet actif,
+      // sinon le 1er load (watch + directoryLoaded) peut rester vide en race / cache navigateur (ex. Firefox F5).
+      if (this.activeTab === 'directory') await this.loadDirectory(true);
+      // Même logique pour « Gestion des offres » sur #settings.
+      if (this.activeTab === 'settings') await this.loadOffersAdmin();
+      this.connectSocket();
+      this.startTick();
+    },
+
+    async checkAuth() {
+      try {
+        const res = await fetch('/api/supervisor/quotas', {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        if (res.status === 200) this.isAuth = true;
+      } catch { /* non authentifié */ }
+    },
+
+    async loadAll() {
+      await Promise.all([
+        this.loadQuotas(),
+        this.loadHistory(1),
+        this.loadSettings(),
+        this.loadMaintenanceMode(),
+      ]);
+    },
+
+    ensureSupervisorTabRouting() {
+      if (this._supervisorTabRoutingBound) return;
+      this._supervisorTabRoutingBound = true;
+      window.addEventListener('hashchange', () => this.applyHashChangeToActiveTab());
+
+      this.$watch('activeTab', async (value) => {
+        if (!this.isAuth) return;
+        if (value === 'directory') await this.loadDirectory();
+        else if (value === 'settings') await this.loadOffersAdmin();
+      }, { immediate: true });
+    },
+
+    /** Met à jour uniquement activeTab depuis location.hash ; charge async délégué au $watch(activeTab). */
+    applyHashChangeToActiveTab() {
+      if (!this.isAuth) return;
+      const pathname = window.location.pathname;
+      const search = window.location.search || '';
+      const base = pathname + search;
+      const raw = (window.location.hash || '').replace(/^#/, '').trim();
+
+      let next = raw;
+      if (!SUPERVISOR_TAB_IDS.has(raw)) {
+        window.history.replaceState(null, '', `${base}#live`);
+        next = 'live';
+      }
+      if (this.activeTab !== next) this.activeTab = next;
+    },
+
+    /** Au premier affichage authentifié : hash vide/invalide → replaceState #live ; sinon activeTab = hash valide. */
+    syncSupervisorTabFromUrl() {
+      const pathname = window.location.pathname;
+      const search = window.location.search || '';
+      const base = pathname + search;
+      const raw = (window.location.hash || '').replace(/^#/, '').trim();
+
+      if (!raw || !SUPERVISOR_TAB_IDS.has(raw)) {
+        window.history.replaceState(null, '', `${base}#live`);
+        this.activeTab = 'live';
+        return;
+      }
+      this.activeTab = raw;
+    },
+
+    /** Clic onglet : navigation native (historique) ; activeTab mis à jour via hashchange. */
+    navigateToTab(tabId) {
+      if (!SUPERVISOR_TAB_IDS.has(tabId)) return;
+      window.location.hash = `#${tabId}`;
+    },
+
+    // ── Auth ─────────────────────────────────────
+    async login() {
+      if (!this.pinInput || this.loginLoading) return;
+      this.loginLoading = true;
+      this.loginError   = '';
+      try {
+        const res  = await fetch('/api/supervisor/auth', {
+          method:      'POST',
+          headers:     { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body:        JSON.stringify({ pin: this.pinInput }),
+        });
+        if (res.ok) {
+          this.isAuth    = true;
+          this.pinInput  = '';
+          this.syncSupervisorTabFromUrl();
+          this.ensureSupervisorTabRouting();
+          await this.loadAll();
+          if (this.activeTab === 'directory') await this.loadDirectory(true);
+          if (this.activeTab === 'settings') await this.loadOffersAdmin();
+          this.connectSocket();
+          this.startTick();
+        } else {
+          const d = await res.json();
+          this.loginError = d.error?.message || 'Code PIN incorrect.';
+        }
+      } catch { this.loginError = 'Erreur réseau.'; }
+      finally   { this.loginLoading = false; }
+    },
+
+    async logout() {
+      try {
+        await fetch('/api/supervisor/logout', { method: 'POST', credentials: 'include' });
+      } catch { /* ignore */ }
+      this.isAuth = false;
+      this.pinInput = '';
+      if (this._socket) { this._socket.disconnect(); this._socket = null; }
+      if (this._tick)   { clearInterval(this._tick); this._tick = null; }
+    },
+
+    // ── Quotas ───────────────────────────────────
+    async loadQuotas() {
+      try {
+        const res  = await fetch('/api/supervisor/quotas', {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        const data = await res.json();
+        this.quotas = (data.quotas || []).map(q => ({
+          ...q,
+          _edit: {
+            fixedQuota:     q.rule.fixedQuota    ?? '',
+            presentCount:   q.rule.presentCount  ?? '',
+            allowedPercent: q.rule.allowedPercent ?? '',
+          },
+          _saving:   false,
+          _saveError: '',
+        }));
+        // Alimenter la liste des offres pour les filtres historique
+        this.histOffers = this.quotas.map(q => q.offer);
+      } catch { /* silencieux */ }
+    },
+
+    async saveQuota(q) {
+      q._saving   = true;
+      q._saveError = '';
+
+      const body = {};
+      const fq = q._edit.fixedQuota;
+      const pc = q._edit.presentCount;
+      const ap = q._edit.allowedPercent;
+
+      if (fq !== '' && fq !== null) body.fixedQuota = parseInt(fq, 10);
+      else if (fq === '' || fq === null) body.fixedQuota = null;  // effacer explicitement
+
+      if (pc !== '' && ap !== '') {
+        body.presentCount   = parseInt(pc, 10);
+        body.allowedPercent = parseFloat(ap);
+      }
+
+      // Nécessite au moins un champ
+      if (Object.keys(body).length === 0) {
+        q._saveError = 'Renseignez au moins un paramètre.';
+        q._saving    = false;
+        return;
+      }
+
+      try {
+        const res  = await fetch(`/api/supervisor/quotas/${q.offer.code}`, {
+          method:      'PUT',
+          headers:     { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body:        JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          q.effectiveQuota = data.effectiveQuota;
+          q.currentPaused  = data.currentPaused;
+          q.blocked        = data.blocked;
+          q.rule.fixedQuota    = body.fixedQuota    ?? q.rule.fixedQuota;
+          q.rule.presentCount  = body.presentCount  ?? q.rule.presentCount;
+          q.rule.allowedPercent = body.allowedPercent ?? q.rule.allowedPercent;
+        } else {
+          q._saveError = data.error?.message || 'Erreur lors de la sauvegarde.';
+        }
+      } catch { q._saveError = 'Erreur réseau.'; }
+      finally  { q._saving = false; }
+    },
+
+    // ── Live ─────────────────────────────────────
+    buildLiveFromSnapshot(snapshot) {
+      this.livePauses = [];
+      for (const entry of snapshot) {
+        for (const p of entry.pauses) {
+          this.livePauses.push({
+            id:        p.id,
+            agent_matricule: p.agent_matricule,
+            nom: p.nom,
+            prenom: p.prenom,
+            agentName: `${p.prenom} ${p.nom}`,
+            offerCode: entry.offer.code,
+            startTime: p.start_time,
+            _forcing:  false,
+          });
+        }
+      }
+    },
+
+    hashOfferId(offerId) {
+      if (Number.isInteger(offerId)) return offerId;
+      if (typeof offerId === 'number' && Number.isFinite(offerId)) return Math.trunc(offerId);
+      const str = String(offerId ?? '');
+      let hash = 0;
+      for (let i = 0; i < str.length; i += 1) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
+      }
+      return Math.abs(hash);
+    },
+
+    resolveOfferColor(offerId, savedColor) {
+      const pastelColors = ['#ffb3ba', '#ffdfba', '#ffffba', '#baffc9', '#bae1ff'];
+      if (typeof savedColor === 'string') {
+        const normalized = savedColor.trim().toLowerCase();
+        if (/^#[0-9a-f]{6}$/.test(normalized)) return normalized;
+      }
+      const idx = this.hashOfferId(offerId) % pastelColors.length;
+      return pastelColors[idx];
+    },
+
+    resolveOfferColorByCode(offerCode) {
+      const quota = this.quotas.find(q => q.offer?.code === offerCode);
+      if (quota) return this.resolveOfferColor(quota.offer.id ?? quota.offer.code, quota.offer.color);
+      return this.resolveOfferColor(offerCode, null);
+    },
+
+    async forceStop(p) {
+      p._forcing = true;
+      try {
+        const res  = await fetch('/api/supervisor/pause/force-stop', {
+          method:      'POST',
+          headers:     { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body:        JSON.stringify({ agent_matricule: p.agent_matricule }),
+        });
+        if (!res.ok) {
+          const d = await res.json();
+          alert(d.error?.message || 'Erreur lors du retour forcé.');
+          p._forcing = false;
+        }
+        // La ligne disparaîtra via l'événement Socket pause:stopped
+      } catch {
+        alert('Erreur réseau.');
+        p._forcing = false;
+      }
+    },
+
+    // ── Historique ───────────────────────────────
+    async loadHistory(page = 1) {
+      this.histLoading = true;
+      try {
+        const params = new URLSearchParams({ page, limit: 50 });
+        if (this.histFilter.offerCode) params.append('offerCode', this.histFilter.offerCode);
+        if (this.histFilter.from)      params.append('from', this.histFilter.from + 'T00:00:00.000Z');
+        if (this.histFilter.to)        params.append('to',   this.histFilter.to   + 'T23:59:59.999Z');
+
+        const res  = await fetch(`/api/supervisor/history?${params}`, {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        const data = await res.json();
+        this.histRows       = data.rows       || [];
+        this.histPagination = data.pagination || { page: 1, limit: 50, total: 0, pages: 0 };
+      } catch { /* silencieux */ }
+      finally { this.histLoading = false; }
+    },
+
+    sortHistory(key) {
+      if (this.histSort.key === key) {
+        this.histSort.dir = this.histSort.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        this.histSort.key = key;
+        this.histSort.dir = (key === 'start_time' || key === 'start_date') ? 'desc' : 'asc';
+      }
+    },
+
+    // ── Annuaire ────────────────────────────────
+    async loadDirectory(force = false) {
+      if (this.directoryLoaded && !force) return;
+      this.directoryLoading = true;
+      this.directoryError = '';
+      try {
+        const res = await fetch('/api/supervisor/agents', {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        const data = await res.json();
+        if (res.ok) {
+          this.directoryRows = (data.agents || []).map(a => ({
+            ...a,
+            _saving: false,
+            _releasing: false,
+          }));
+          this.directoryLoaded = true;
+        } else {
+          this.directoryError = data.error?.message || "Impossible de charger l'annuaire.";
+        }
+      } catch {
+        this.directoryError = 'Erreur réseau.';
+      } finally {
+        this.directoryLoading = false;
+      }
+    },
+
+    async createDirectoryAgent() {
+      if (this.directorySaving) return;
+      this.directorySaving = true;
+      this.directoryError = '';
+      this.directoryMsg = '';
+      const payload = {
+        matricule: this.directoryForm.matricule.trim(),
+        nom: this.directoryForm.nom.trim(),
+        prenom: this.directoryForm.prenom.trim(),
+      };
+
+      if (!payload.matricule || !payload.nom || !payload.prenom) {
+        this.directoryError = 'Matricule, nom et prénom sont requis.';
+        this.directorySaving = false;
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/supervisor/agents', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          this.directoryForm = { matricule: '', nom: '', prenom: '' };
+          this.directoryMsg = 'Agent ajouté.';
+          this.directoryLoaded = false;
+          await this.loadDirectory(true);
+        } else if (res.status === 409) {
+          this.directoryError = 'Ce matricule existe déjà.';
+        } else {
+          this.directoryError = data.error?.message || "Impossible d'ajouter l'agent.";
+        }
+      } catch {
+        this.directoryError = 'Erreur réseau.';
+      } finally {
+        this.directorySaving = false;
+      }
+    },
+
+    async toggleDirectoryAgentStatus(agent) {
+      if (agent._saving) return;
+      agent._saving = true;
+      this.directoryError = '';
+      this.directoryMsg = '';
+      try {
+        const action = agent.is_active === 1 ? 'deactivate' : 'activate';
+        const res = await fetch(`/api/supervisor/agents/${encodeURIComponent(agent.matricule)}/${action}`, {
+          method: 'PATCH',
+          credentials: 'include',
+        });
+        const data = await res.json();
+        if (res.ok && data.agent) {
+          agent.is_active = data.agent.is_active;
+          this.directoryMsg = data.agent.is_active === 1 ? 'Agent réactivé.' : 'Agent désactivé.';
+        } else {
+          this.directoryError = data.error?.message || "Impossible de modifier le statut de l'agent.";
+        }
+      } catch {
+        this.directoryError = 'Erreur réseau.';
+      } finally {
+        agent._saving = false;
+      }
+    },
+
+    async releaseDirectorySession(agent) {
+      if (!agent || agent._releasing) return;
+      const hasLivePause = this.livePauses.some(p => p.agent_matricule === agent.matricule);
+      const shouldForceStop = hasLivePause
+        ? window.confirm("Cet agent est actuellement en pause. Voulez-vous également forcer son retour de pause ?")
+        : false;
+
+      agent._releasing = true;
+      this.directoryError = '';
+      this.directoryMsg = '';
+      try {
+        const res = await fetch('/api/supervisor/sessions/release', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ agent_matricule: agent.matricule }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          this.directoryError = data.error?.message || 'Erreur lors de la libération de session.';
+          return;
+        }
+        if (!data.released) {
+          this.directoryError = 'Aucune session active a liberer pour cet agent.';
+          return;
+        }
+
+        if (!shouldForceStop) {
+          if (data.kicked) {
+            this.directoryMsg = 'Session libérée et agent expulsé.';
+          } else {
+            this.directoryMsg = 'Session libérée.';
+          }
+          return;
+        }
+
+        const forceRes = await fetch('/api/supervisor/pause/force-stop', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ agent_matricule: agent.matricule }),
+        });
+        const forceData = await forceRes.json();
+        if (!forceRes.ok) {
+          const forceError = forceData.error?.message || 'retour de pause non exécuté';
+          this.directoryError = `Session libérée, mais échec du retour de pause forcé (${forceError}).`;
+          return;
+        }
+
+        if (data.kicked) {
+          this.directoryMsg = 'Session libérée, agent expulsé et retour de pause forcé.';
+        } else {
+          this.directoryMsg = 'Session libérée et retour de pause forcé.';
+        }
+      } catch {
+        this.directoryError = 'Erreur reseau.';
+      } finally {
+        agent._releasing = false;
+      }
+    },
+
+    // ── Offres (admin) ────────────────────────────
+    _normalizeHexColor(color) {
+      if (typeof color !== 'string') return null;
+      const normalized = color.trim().toLowerCase();
+      if (!/^#[0-9a-f]{6}$/.test(normalized)) return null;
+      return normalized;
+    },
+
+    _resetOfferForm() {
+      this.offerForm = {
+        mode: 'create',
+        originalCode: '',
+        code: '',
+        label: '',
+        default_quota: 2,
+        color: '#000000',
+        useDefaultColor: true,
+      };
+    },
+
+    async loadOffersAdmin() {
+      this.offersAdminLoading = true;
+      this.offerError = '';
+      try {
+        const res = await fetch('/api/supervisor/offers', {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          this.offerError = data.error?.message || 'Impossible de charger les offres.';
+          return;
+        }
+        this.offersAdminRows = data.offers || [];
+      } catch {
+        this.offerError = 'Erreur réseau.';
+      } finally {
+        this.offersAdminLoading = false;
+      }
+    },
+
+    startCreateOffer() {
+      this.offerError = '';
+      this.offerMsg = '';
+      this._resetOfferForm();
+      this.expandedOfferCode = '__new__';
+    },
+
+    cancelOfferPanel() {
+      this.expandedOfferCode = null;
+      this._resetOfferForm();
+      this.offerError = '';
+      this.offerMsg = '';
+    },
+
+    _parseDefaultQuota(raw) {
+      if (raw === null || raw === undefined || raw === '') return 2;
+      const n = typeof raw === 'number' ? raw : parseInt(String(raw).trim(), 10);
+      if (!Number.isFinite(n) || n < 0) return 2;
+      return Math.min(Math.floor(n), 999999);
+    },
+
+    /** Remplit offerForm depuis une ligne API (quota SQLite/JSON tolérant). */
+    editOffer(offer) {
+      if (!offer) return;
+      this.offerError = '';
+      this.offerMsg = '';
+      const hex = typeof offer.color === 'string'
+        ? this._normalizeHexColor(offer.color)
+        : null;
+      this.offerForm = {
+        mode: 'edit',
+        originalCode: offer.code,
+        code: offer.code || '',
+        label: offer.label != null ? String(offer.label) : '',
+        default_quota: this._parseDefaultQuota(offer.default_quota),
+        color: hex || '#000000',
+        useDefaultColor: !hex,
+      };
+    },
+
+    openEditOffer(offer) {
+      if (!offer) return;
+      if (this.expandedOfferCode === offer.code) {
+        this.cancelOfferPanel();
+        return;
+      }
+      this.editOffer(offer);
+      this.expandedOfferCode = offer.code;
+    },
+
+    resetOfferColor() {
+      this.offerForm.useDefaultColor = true;
+      this.offerForm.color = '#000000';
+    },
+
+    async saveOffer() {
+      if (this.offerSaving) return;
+      this.offerSaving = true;
+      this.offerError = '';
+      this.offerMsg = '';
+
+      const code = (this.offerForm.code || '').trim();
+      const label = (this.offerForm.label || '').trim();
+      const defaultQuota = parseInt(this.offerForm.default_quota, 10);
+      const color = this.offerForm.useDefaultColor
+        ? null
+        : this._normalizeHexColor(this.offerForm.color);
+
+      if (!code) {
+        this.offerError = 'Le code offre est requis.';
+        this.offerSaving = false;
+        return;
+      }
+      if (!label) {
+        this.offerError = 'Le libellé est requis.';
+        this.offerSaving = false;
+        return;
+      }
+      if (!Number.isInteger(defaultQuota) || defaultQuota < 0) {
+        this.offerError = 'Le quota par défaut doit être un entier >= 0.';
+        this.offerSaving = false;
+        return;
+      }
+      if (!this.offerForm.useDefaultColor && !color) {
+        this.offerError = 'Couleur invalide.';
+        this.offerSaving = false;
+        return;
+      }
+
+      const payload = {
+        label,
+        default_quota: defaultQuota,
+        color,
+      };
+
+      try {
+        let res;
+        if (this.offerForm.mode === 'create') {
+          res = await fetch('/api/supervisor/offers', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ code, ...payload }),
+          });
+        } else {
+          res = await fetch(`/api/supervisor/offers/${encodeURIComponent(this.offerForm.originalCode)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(payload),
+          });
+        }
+
+        const data = await res.json();
+        if (!res.ok) {
+          this.offerError = data.error?.message || "Impossible d'enregistrer l'offre.";
+          return;
+        }
+
+        this.offerMsgOk = true;
+        this.offerMsg = this.offerForm.mode === 'create' ? 'Offre créée.' : 'Offre mise à jour.';
+        this.expandedOfferCode = null;
+        this._resetOfferForm();
+        await Promise.all([this.loadOffersAdmin(), this.loadQuotas()]);
+      } catch {
+        this.offerError = 'Erreur réseau.';
+      } finally {
+        this.offerSaving = false;
+      }
+    },
+
+    async deleteOffer(offer) {
+      if (!offer || offer.is_active !== 1) return;
+      if (this.offerSaving) return;
+      const confirmed = window.confirm(`Désactiver l'offre ${offer.code} ? Les pauses en cours ne seront pas interrompues.`);
+      if (!confirmed) return;
+
+      this.offerSaving = true;
+      this.offerError = '';
+      this.offerMsg = '';
+      try {
+        const res = await fetch(`/api/supervisor/offers/${encodeURIComponent(offer.code)}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          this.offerError = data.error?.message || "Impossible de désactiver l'offre.";
+          return;
+        }
+        this.offerMsgOk = true;
+        this.offerMsg = data.message || 'Offre désactivée.';
+        if (this.expandedOfferCode === offer.code) this.expandedOfferCode = null;
+        await Promise.all([this.loadOffersAdmin(), this.loadQuotas()]);
+      } catch {
+        this.offerError = 'Erreur réseau.';
+      } finally {
+        this.offerSaving = false;
+      }
+    },
+
+    async reactivateOffer(offer) {
+      if (!offer || offer.is_active !== 0) return;
+      if (this.offerSaving) return;
+      const confirmed = window.confirm(`Voulez-vous réactiver l'offre ${offer.code} ?`);
+      if (!confirmed) return;
+
+      this.offerSaving = true;
+      this.offerError = '';
+      this.offerMsg = '';
+      try {
+        const res = await fetch(`/api/supervisor/offers/${encodeURIComponent(offer.code)}/activate`, {
+          method: 'PATCH',
+          credentials: 'include',
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          this.offerError = data.error?.message || "Impossible de réactiver l'offre.";
+          return;
+        }
+        this.offerMsgOk = true;
+        this.offerMsg = data.message || 'Offre réactivée.';
+        await Promise.all([this.loadOffersAdmin(), this.loadQuotas()]);
+      } catch {
+        this.offerError = 'Erreur réseau.';
+      } finally {
+        this.offerSaving = false;
+      }
+    },
+
+    endReasonLabel(reason, row) {
+      const map = {
+        manual:            'Manuel',
+        auto_15m:          `Auto (${row?.max_minutes_at_end ?? this.settings.maxPauseMinutes} min)`,
+        supervisor_forced: 'Forcé superviseur',
+      };
+      return map[reason] || reason || '—';
+    },
+
+    // ── Paramètres ───────────────────────────────
+    async loadSettings() {
+      try {
+        const res  = await fetch('/api/supervisor/settings', {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        const data = await res.json();
+        this.settings.historyRetentionDays = parseInt(data.settings?.history_retention_days || 30, 10);
+        this.settings.maxPauseMinutes      = parseInt(data.settings?.max_pause_minutes      || 15, 10);
+        this.settings.github_owner         = typeof data.settings?.github_owner === 'string' ? data.settings.github_owner : '';
+        this.settings.github_repo          = typeof data.settings?.github_repo === 'string' ? data.settings.github_repo : '';
+        this.githubTokenConfigured         = !!data.settings?.github_token_configured;
+        this.githubTokenInput              = '';
+        this.supervisorPinConfigured       = !!data.settings?.supervisor_pin_configured;
+        this.supervisorPinInput            = '';
+        this.updateThresholds();
+      } catch { /* silencieux */ }
+    },
+
+    normalizeGithubSetting(s) {
+      if (typeof s !== 'string') return '';
+      return s.trim().replace(/\s+/g, ' ');
+    },
+
+    async saveSupervisorPin() {
+      const raw = typeof this.supervisorPinInput === 'string' ? this.supervisorPinInput.trim() : '';
+      if (raw === '') {
+        this.supervisorPinMsgOk = false;
+        this.supervisorPinMsg = 'Saisissez un nouveau code (4 à 6 chiffres) pour le modifier.';
+        setTimeout(() => { this.supervisorPinMsg = ''; }, 4000);
+        return;
+      }
+      this.supervisorPinSaving = true;
+      this.supervisorPinMsg    = '';
+      try {
+        const res = await fetch('/api/supervisor/settings', {
+          method:      'PUT',
+          headers:     { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body:        JSON.stringify({ supervisor_pin: raw }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          this.supervisorPinMsgOk = true;
+          this.supervisorPinMsg   = 'Code PIN enregistré.';
+          await this.loadSettings();
+        } else {
+          this.supervisorPinMsgOk = false;
+          this.supervisorPinMsg   = data.error?.message || 'Erreur.';
+        }
+      } catch {
+        this.supervisorPinMsgOk = false;
+        this.supervisorPinMsg   = 'Erreur réseau.';
+      } finally {
+        this.supervisorPinSaving = false;
+        setTimeout(() => { this.supervisorPinMsg = ''; }, 4000);
+      }
+    },
+
+    async saveGithubOta() {
+      this.githubOtaSaving = true;
+      this.githubOtaMsg    = '';
+      const body = {
+        github_owner: this.normalizeGithubSetting(this.settings.github_owner),
+        github_repo:  this.normalizeGithubSetting(this.settings.github_repo),
+      };
+      const t = typeof this.githubTokenInput === 'string' ? this.githubTokenInput.trim() : '';
+      if (t !== '') body.github_token = t;
+      try {
+        const res = await fetch('/api/supervisor/settings', {
+          method:      'PUT',
+          headers:     { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body:        JSON.stringify(body),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          this.githubOtaMsgOk = true;
+          this.githubOtaMsg   = 'Paramètres GitHub enregistrés.';
+          await this.loadSettings();
+        } else {
+          this.githubOtaMsgOk = false;
+          this.githubOtaMsg   = data.error?.message || 'Erreur.';
+        }
+      } catch {
+        this.githubOtaMsgOk = false;
+        this.githubOtaMsg   = 'Erreur réseau.';
+      } finally {
+        this.githubOtaSaving = false;
+        setTimeout(() => { this.githubOtaMsg = ''; }, 4000);
+      }
+    },
+
+    async saveGithubOtaClearToken() {
+      this.githubOtaSaving = true;
+      this.githubOtaMsg    = '';
+      try {
+        const res = await fetch('/api/supervisor/settings', {
+          method:      'PUT',
+          headers:     { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            github_owner: this.normalizeGithubSetting(this.settings.github_owner),
+            github_repo:  this.normalizeGithubSetting(this.settings.github_repo),
+            github_token: '',
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          this.githubOtaMsgOk = true;
+          this.githubOtaMsg   = 'Token supprimé.';
+          await this.loadSettings();
+        } else {
+          this.githubOtaMsgOk = false;
+          this.githubOtaMsg   = data.error?.message || 'Erreur.';
+        }
+      } catch {
+        this.githubOtaMsgOk = false;
+        this.githubOtaMsg   = 'Erreur réseau.';
+      } finally {
+        this.githubOtaSaving = false;
+        setTimeout(() => { this.githubOtaMsg = ''; }, 4000);
+      }
+    },
+
+    async saveRetention() {
+      this.settingsSaving = true;
+      this.settingsMsg    = '';
+      try {
+        const res = await fetch('/api/supervisor/settings/history-retention-days', {
+          method:      'PUT',
+          headers:     { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body:        JSON.stringify({ days: this.settings.historyRetentionDays }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          this.settingsMsgOk = true;
+          this.settingsMsg   = `Rétention mise à jour : ${data.historyRetentionDays} jours.`;
+        } else {
+          this.settingsMsgOk = false;
+          this.settingsMsg   = data.error?.message || 'Erreur.';
+        }
+      } catch {
+        this.settingsMsgOk = false;
+        this.settingsMsg   = 'Erreur réseau.';
+      } finally {
+        this.settingsSaving = false;
+        setTimeout(() => { this.settingsMsg = ''; }, 4000);
+      }
+    },
+
+    async saveMaxPause() {
+      this.maxPauseSaving = true;
+      this.maxPauseMsg    = '';
+      try {
+        const res = await fetch('/api/supervisor/settings/max-pause-minutes', {
+          method:      'PUT',
+          headers:     { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body:        JSON.stringify({ minutes: this.settings.maxPauseMinutes }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          this.maxPauseMsgOk = true;
+          this.maxPauseMsg   = `Durée maximale mise à jour : ${data.maxPauseMinutes} min.`;
+          this.updateThresholds();
+        } else {
+          this.maxPauseMsgOk = false;
+          this.maxPauseMsg   = data.error?.message || 'Erreur.';
+        }
+      } catch {
+        this.maxPauseMsgOk = false;
+        this.maxPauseMsg   = 'Erreur réseau.';
+      } finally {
+        this.maxPauseSaving = false;
+        setTimeout(() => { this.maxPauseMsg = ''; }, 4000);
+      }
+    },
+
+    // ── Mode urgence ─────────────────────────────
+    async loadMaintenanceMode() {
+      try {
+        const res  = await fetch('/api/supervisor/settings/maintenance-mode', {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        const data = await res.json();
+        this.maintenanceMode = data.maintenanceMode ?? false;
+      } catch { /* silencieux */ }
+    },
+
+    async toggleMaintenance() {
+      if (this.maintenanceLoading) return;
+      this.maintenanceLoading = true;
+      try {
+        const res = await fetch('/api/supervisor/settings/maintenance-mode', {
+          method:      'PUT',
+          headers:     { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body:        JSON.stringify({ active: !this.maintenanceMode }),
+        });
+        const data = await res.json();
+        if (res.ok) this.maintenanceMode = data.maintenanceMode;
+      } catch { /* silencieux */ }
+      finally { this.maintenanceLoading = false; }
+    },
+
+    // ── OTA ──────────────────────────────────────
+    async checkUpdate() {
+      this.otaChecking   = true;
+      this.otaCheckError = '';
+      this.otaCheckResult = null;
+      try {
+        const res  = await fetch('/api/supervisor/system/update/check', {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        const data = await res.json();
+        if (res.ok) {
+          this.otaCheckResult = data;
+          this.otaRunning = data.updateRunning;
+        } else {
+          this.otaCheckError = data.error?.message || 'Erreur lors de la vérification.';
+        }
+      } catch {
+        this.otaCheckError = 'Erreur réseau.';
+      } finally {
+        this.otaChecking = false;
+      }
+    },
+
+    async launchUpdate() {
+      if (this.otaRunning) return;
+      if (!confirm('Lancer la mise à jour ? Le serveur va redémarrer à la fin du processus.')) return;
+      this.otaRunning    = true;
+      this.otaLaunchError = '';
+      this.otaLogs        = [];
+      try {
+        const res  = await fetch('/api/supervisor/system/update', {
+          method:      'POST',
+          credentials: 'include',
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          this.otaLaunchError = data.error?.message || 'Erreur lors du lancement.';
+          this.otaRunning = false;
+        }
+        // La progression est suivie via Socket.io (system:update-log / system:update-status)
+      } catch {
+        this.otaLaunchError = 'Erreur réseau.';
+        this.otaRunning = false;
+      }
+    },
+
+    _scrollOtaConsole() {
+      this.$nextTick(() => {
+        const el = this.$refs.otaConsole;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    },
+
+    // ── Socket.io ────────────────────────────────
+    connectSocket() {
+      const socket = io({ transports: ['websocket', 'polling'] });
+      this._socket = socket;
+
+      socket.on('connect',    () => { this.socketConnected = true;  socket.emit('join:supervisor'); });
+      socket.on('disconnect', () => { this.socketConnected = false; });
+
+      socket.on('state:snapshot', (snapshot) => {
+        if (!Array.isArray(snapshot)) return;
+        this.buildLiveFromSnapshot(snapshot);
+        // Mettre à jour les compteurs dans l'onglet quotas
+        for (const entry of snapshot) {
+          const q = this.quotas.find(x => x.offer.code === entry.offer.code);
+          if (q) {
+            q.effectiveQuota = entry.effectiveQuota;
+            q.currentPaused  = entry.pauses.length;
+            q.blocked        = entry.blocked;
+          }
+        }
+      });
+
+      socket.on('pause:started', (evt) => {
+        const exists = this.livePauses.find(p => p.id === evt.pauseId);
+        if (!exists) {
+          this.livePauses.push({
+            id:        evt.pauseId,
+            agent_matricule: evt.agent_matricule,
+            nom: evt.nom,
+            prenom: evt.prenom,
+            agentName: evt.agentName,
+            offerCode: evt.offerCode,
+            startTime: evt.startTime,
+            _forcing:  false,
+          });
+        }
+        this._updateQuotaCounter(evt.offerCode);
+      });
+
+      socket.on('pause:stopped', (evt) => {
+        this.livePauses = this.livePauses.filter(p => p.id !== evt.pauseId);
+        this._updateQuotaCounter(evt.offerCode);
+        // Recharger la page d'historique courante si on est sur cet onglet
+        if (this.activeTab === 'history') this.loadHistory(this.histPagination.page);
+      });
+
+      socket.on('quota:updated', (evt) => {
+        const q = this.quotas.find(x => x.offer.code === evt.offerCode);
+        if (q) {
+          q.effectiveQuota = evt.effectiveQuota;
+          q.currentPaused  = evt.currentPaused;
+          q.blocked        = evt.blockedForNewStarts;
+        }
+      });
+
+      socket.on('offer:block-status', (evt) => {
+        const q = this.quotas.find(x => x.offer.code === evt.offerCode);
+        if (q) {
+          q.blocked        = !evt.canStartPause;
+          q.currentPaused  = evt.currentPaused ?? q.currentPaused;
+          q.effectiveQuota = evt.effectiveQuota ?? q.effectiveQuota;
+        }
+      });
+
+      // Paramètres système mis à jour depuis une autre session
+      socket.on('system:settings-updated', (evt) => {
+        if (evt.maxPauseMinutes !== undefined) { this.settings.maxPauseMinutes = evt.maxPauseMinutes; this.updateThresholds(); }
+      });
+
+      // Mode urgence diffusé par le serveur
+      socket.on('system:maintenance-mode', (evt) => {
+        this.maintenanceMode = evt.active;
+      });
+
+      // Logs OTA en streaming
+      socket.on('system:update-log', (evt) => {
+        this.otaLogs.push({ stream: evt.stream, line: evt.line });
+        this._scrollOtaConsole();
+      });
+
+      // Statut final du processus OTA
+      socket.on('system:update-status', (evt) => {
+        if (evt.status === 'completed' || evt.status === 'failed') {
+          this.otaRunning = false;
+          if (evt.status === 'completed') {
+            this.otaCheckResult = null; // réinitialiser pour forcer re-check
+          }
+        }
+        if (evt.status === 'running') this.otaRunning = true;
+      });
+
+      socket.on('session:update', (evt) => {
+        if (!evt || !evt.agent_matricule) return;
+        const agent = this.directoryRows.find(a => a.matricule === evt.agent_matricule);
+        if (agent) agent.isOnline = !!evt.isOnline;
+      });
+    },
+
+    _updateQuotaCounter(offerCode) {
+      const q = this.quotas.find(x => x.offer.code === offerCode);
+      if (!q) return;
+      q.currentPaused = this.livePauses.filter(p => p.offerCode === offerCode).length;
+      q.blocked = q.currentPaused >= q.effectiveQuota;
+    },
+
+    // ── Tick local chrono (1s) ───────────────────
+    startTick() {
+      this._tick = setInterval(() => {
+        this._now = Date.now();
+      }, 1000);
+    },
+
+    // ── Helpers ──────────────────────────────────
+    elapsedSec(startTime) {
+      return Math.max(0, Math.floor((this._now - new Date(startTime).getTime()) / 1000));
+    },
+    elapsedMin(startTime) {
+      return Math.floor(this.elapsedSec(startTime) / 60);
+    },
+    formatDuration(totalSec) {
+      const m = Math.floor(totalSec / 60).toString().padStart(2, '0');
+      const s = (totalSec % 60).toString().padStart(2, '0');
+      return `${m}:${s}`;
+    },
+    formatTime(iso) {
+      if (!iso) return '—';
+      return new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    },
+    formatDate(iso) {
+      if (!iso) return '—';
+      return new Date(iso).toLocaleDateString('fr-FR');
+    },
+  };
+}
+</script>
+
+</body>
+</html>
