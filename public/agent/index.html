@@ -605,7 +605,10 @@ function agentApp() {
 
     // ── Socket.io ────────────────────────────────────
     connectSocket() {
-      const socket = io({ transports: ['websocket', 'polling'] });
+      const socket = io({
+        transports: ['polling', 'websocket'],
+        upgrade: true,
+      });
 
       socket.on('connect', () => {
         this.socketConnected = true;
@@ -617,7 +620,10 @@ function agentApp() {
       });
 
       socket.on('disconnect', () => { this.socketConnected = false; });
-      socket.on('connect_error', () => { this.socketConnected = false; });
+      socket.on('connect_error', (err) => {
+        this.socketConnected = false;
+        console.warn('[socket] connect_error', err && err.message ? err.message : err);
+      });
       socket.on('session:identified', () => {
         this.sessionConflict = false;
         if (this.errorMsg && this.errorMsg.includes('Session deja active')) this.errorMsg = '';
