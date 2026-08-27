@@ -1,0 +1,26 @@
+name: Déployer sur le VPS
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: git pull + rebuild Docker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Déployer via SSH
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          command_timeout: 10m
+          script: |
+            set -euo pipefail
+            cd /home/shifti_admin/flowi
+            git fetch origin
+            git reset --hard origin/main
+            docker compose up -d --build
+            docker image prune -f
+            echo "Déploiement terminé"
