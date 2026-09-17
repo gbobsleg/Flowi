@@ -33,12 +33,34 @@ function githubGet(urlPath) {
   });
 }
 
-function localVersion() {
+function readPackageJson() {
   try {
-    const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf8'));
-    return pkg.version || '0.0.0';
-  } catch { return '0.0.0'; }
+    return JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf8'));
+  } catch {
+    return { name: 'app-pauses', version: '0.0.0', dependencies: {} };
+  }
 }
+
+function localVersion() {
+  return readPackageJson().version || '0.0.0';
+}
+
+function installedVersion(pkgName) {
+  try {
+    return require(`${pkgName}/package.json`).version || null;
+  } catch {
+    return null;
+  }
+}
+
+const DEP_ROLES = {
+  express: 'Serveur web',
+  pg: 'Base de données',
+  'socket.io': 'Mises à jour en direct',
+  'cookie-parser': 'Session de connexion',
+  dotenv: 'Configuration',
+  uuid: 'Identifiants',
+};
 
 function semverGt(a, b) {
   const pa = a.replace(/^v/, '').split('.').map(Number);
@@ -67,6 +89,53 @@ async function resolveOtaRepo() {
 }
 
 // ---------- routes ----------
+
+/**
+ * GET /api/supervisor/system/about
+ * Versions installées (package.json + Node + PostgreSQL) pour l’onglet À propos.
+ */
+router.get('/about', requireSupervisor, async (req, res) => {
+  try {
+    const pkg = readPackageJson();
+
+    let database = null;
+    try {
+      const row = await db.queryOne("SELECT current_setting('server_version') AS version");
+      database = row && row.version ? String(row.version) : null;
+    } catch {
+      database = null;
+    }
+
+    const dependencies = Object.keys(pkg.dependencies || {}).sort().map((name) => ({
+      name,
+      version: installedVersion(name),
+      role: DEP_ROLES[name] || 'Composant serveur',
+    }));
+
+    const socketIoVersion = installedVersion('socket.io');
+
+    res.json({
+      app: {
+        name: pkg.name || 'app-pauses',
+        version: pkg.version || '0.0.0',
+      },
+      runtime: { node: process.version },
+      database,
+      dependencies,
+      frontend: [
+        { name: 'Alpine.js', version: '3 (CDN)', role: 'Interface' },
+        { name: 'Tailwind CSS', version: 'CDN', role: 'Apparence' },
+        {
+          name: 'Socket.io (navigateur)',
+          version: socketIoVersion || 'servi par l’application',
+          role: 'Mises à jour en direct',
+        },
+      ],
+    });
+  } catch (err) {
+    Errors.internal(res, err);
+  }
+});
 
 /**
  * GET /api/supervisor/system/update/check

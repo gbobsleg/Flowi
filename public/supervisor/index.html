@@ -89,7 +89,7 @@
     </div>
     <div class="flex items-center gap-4">
       <!-- Tabs -->
-      <nav class="flex gap-1 text-xs">
+      <nav class="flex flex-wrap gap-1 text-xs">
         <template x-for="tab in tabs" :key="tab.id">
           <button
             type="button"
@@ -967,6 +967,217 @@
 
     </div>
 
+    <!-- ── TAB : À propos ────────────────────────── -->
+    <div x-show="activeTab === 'about'" x-cloak>
+      <h2 class="text-sm font-bold text-slate-700 mb-4">À propos</h2>
+      <div class="space-y-4">
+
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <h3 class="text-sm font-semibold text-slate-800 mb-2">À quoi ça sert</h3>
+          <p class="text-sm text-slate-600">
+            Flowi montre qui est en pause, dans quelle équipe (offre), et empêche de dépasser le nombre de pauses autorisées.
+            L’agent utilise un écran simple ; cette console, protégée par un code PIN, sert à piloter les pauses, les quotas et les accès.
+          </p>
+        </section>
+
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <h3 class="text-sm font-semibold text-slate-800 mb-2">Écran agent</h3>
+          <p class="text-sm text-slate-600 mb-3">Ce que voit l’agent sur son poste, pas cette console.</p>
+          <dl class="space-y-3">
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Identification et offre</dt>
+              <dd class="text-sm text-slate-600">L’agent saisit son matricule, puis choisit son offre (son équipe).</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Départ en pause / Retour de pause</dt>
+              <dd class="text-sm text-slate-600">Démarre ou termine sa propre pause. Il voit les compteurs par offre et les collègues déjà en pause.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Un seul poste à la fois</dt>
+              <dd class="text-sm text-slate-600">Un agent ne peut pas être connecté sur deux postes. Si un poste est bloqué, utilisez <span class="font-medium text-slate-800">Libérer</span> dans l’annuaire — pas Désactiver.</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <h3 class="text-sm font-semibold text-slate-800 mb-2">Onglet Live</h3>
+          <p class="text-sm text-slate-600 mb-3">Tableau des pauses <span class="font-medium text-slate-800">en cours</span> : agent, offre, heure de départ, temps écoulé. Le chrono passe orange puis rouge selon la durée.</p>
+          <dl class="space-y-3">
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">MODE URGENCE</dt>
+              <dd class="text-sm text-slate-600">Bloque <span class="font-medium text-slate-800">tout nouveau départ</span> en pause. Les pauses déjà commencées continuent. Le bouton devient « MODE URGENCE ACTIF — Cliquer pour désactiver » pour lever le blocage.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Forcer retour</dt>
+              <dd class="text-sm text-slate-600">Termine <span class="font-medium text-slate-800">la pause de cet agent tout de suite</span>. L’historique note « Forcé superviseur ». Ça ne déconnecte pas le poste (ce n’est pas Libérer).</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <h3 class="text-sm font-semibold text-slate-800 mb-2">Onglet Quotas</h3>
+          <p class="text-sm text-slate-600 mb-3">Une carte par offre. Le chiffre « en pause / quota » indique combien de personnes sont parties par rapport au plafond. Badge <span class="font-medium text-slate-800">Bloqué</span> : plus de départ sur cette offre.</p>
+          <p class="text-sm text-slate-600 mb-3">Règle : <span class="font-medium text-slate-800">quota fixe</span> s’il est renseigné, sinon <span class="font-medium text-slate-800">présents × % autorisé</span>, sinon le <span class="font-medium text-slate-800">quota par défaut</span> de l’offre.</p>
+          <dl class="space-y-3">
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Quota fixe</dt>
+              <dd class="text-sm text-slate-600">Nombre maximum figé. Champ vide = ce n’est pas utilisé.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Présents</dt>
+              <dd class="text-sm text-slate-600">Effectif du jour sur l’offre, saisi par le superviseur.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">% autorisé</dt>
+              <dd class="text-sm text-slate-600">Part de cet effectif qui peut être en pause en même temps.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Quota effectif actuel</dt>
+              <dd class="text-sm text-slate-600">Le plafond réellement appliqué (aperçu).</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Enregistrer</dt>
+              <dd class="text-sm text-slate-600">Applique les valeurs de cette carte seulement.</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <h3 class="text-sm font-semibold text-slate-800 mb-2">Onglet Historique</h3>
+          <p class="text-sm text-slate-600 mb-3">Pauses <span class="font-medium text-slate-800">terminées</span>, pas celles en cours.</p>
+          <dl class="space-y-3">
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Filtrer</dt>
+              <dd class="text-sm text-slate-600">Restreint la liste par offre et par dates (du / au).</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">En-têtes de colonnes</dt>
+              <dd class="text-sm text-slate-600">Un clic trie la page affichée.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">← Préc. / Suiv. →</dt>
+              <dd class="text-sm text-slate-600">Change de page.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Motifs de fin</dt>
+              <dd class="text-sm text-slate-600">
+                <span class="font-medium text-slate-800">Manuel</span> : l’agent a cliqué Retour de pause.
+                <span class="font-medium text-slate-800">Auto (N min)</span> : la durée max (Paramètres) est dépassée, le serveur a renvoyé l’agent.
+                <span class="font-medium text-slate-800">Forcé superviseur</span> : bouton Forcer retour sur Live.
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <h3 class="text-sm font-semibold text-slate-800 mb-2">Onglet Annuaire</h3>
+          <p class="text-sm text-slate-600 mb-3">Qui a le droit d’utiliser l’appli, et qui est connecté en ce moment.</p>
+          <dl class="space-y-3">
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Ajouter l’agent</dt>
+              <dd class="text-sm text-slate-600">Crée un profil Actif (matricule, nom, prénom). Sans fiche, l’agent ne peut pas s’identifier.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Rafraîchir</dt>
+              <dd class="text-sm text-slate-600">Recharge la liste.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Pastille Session</dt>
+              <dd class="text-sm text-slate-600">Verte = connecté sur un poste. Grise = hors ligne.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Libérer</dt>
+              <dd class="text-sm text-slate-600">Visible seulement si la session est verte. Coupe la connexion du poste (oubli de déconnexion, poste planté, reconnexion ailleurs). <span class="font-medium text-slate-800">Ne termine pas une pause</span> et <span class="font-medium text-slate-800">ne désactive pas</span> le compte. L’agent peut se reconnecter tout de suite.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Désactiver</dt>
+              <dd class="text-sm text-slate-600">Le compte reste dans l’annuaire mais l’agent ne peut plus s’identifier ni partir en pause. Ce n’est pas une suppression. Une pause déjà en cours n’est pas coupée (utiliser Forcer retour si besoin).</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Activer</dt>
+              <dd class="text-sm text-slate-600">Rétablit le droit d’accès.</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+          <h3 class="text-sm font-semibold text-slate-800 mb-2">Onglet Paramètres</h3>
+          <dl class="space-y-3">
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Rétention des données historiques</dt>
+              <dd class="text-sm text-slate-600">Les pauses terminées plus anciennes que N jours sont effacées. N’affecte pas les pauses en cours. Enregistrer applique la valeur.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Durée maximale d’une pause</dt>
+              <dd class="text-sm text-slate-600">Au-delà, retour automatique (motif Auto dans l’historique). Enregistrer applique la valeur.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Nouvelle offre</dt>
+              <dd class="text-sm text-slate-600">Une offre = une équipe pour les quotas et l’écran agent (code, libellé, quota par défaut, couleur).</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Modifier / Annuler</dt>
+              <dd class="text-sm text-slate-600">Ouvre ou ferme le formulaire de modification d’une offre.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Supprimer</dt>
+              <dd class="text-sm text-slate-600">Rend l’offre inactive : elle n’est plus proposée aux agents. Les pauses en cours ne sont pas interrompues.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Réactiver</dt>
+              <dd class="text-sm text-slate-600">L’offre redevient choisissable.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Enregistrer le code</dt>
+              <dd class="text-sm text-slate-600">Change le code PIN pour ouvrir cette console. Champ vide = le code actuel est conservé.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Vérifier les mises à jour</dt>
+              <dd class="text-sm text-slate-600">Compare la version de ce serveur avec la dernière version disponible.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Appliquer la mise à jour</dt>
+              <dd class="text-sm text-slate-600">Installe la nouvelle version sur ce serveur. Ne fermez pas la page pendant l’opération.</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Dépôt GitHub / Enregistrer / Supprimer le token</dt>
+              <dd class="text-sm text-slate-600">Indique où chercher les mises à jour. Le jeton sert uniquement si le dépôt est privé.</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div class="px-5 py-4 border-b border-slate-100">
+            <h3 class="text-sm font-semibold text-slate-800">Versions en cours</h3>
+            <p class="text-xs text-slate-500 mt-0.5">Composants réellement installés sur ce serveur.</p>
+          </div>
+          <div x-show="aboutLoading" class="px-5 py-10 text-center text-sm text-slate-400">Chargement…</div>
+          <p x-show="aboutError" x-cloak class="px-5 py-4 text-xs text-red-500" x-text="aboutError"></p>
+          <div x-show="!aboutLoading && !aboutError && aboutRows.length > 0" class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-xs text-slate-400 uppercase tracking-wider border-b border-slate-100 bg-slate-50">
+                  <th class="px-5 py-3 text-left font-medium">Nom</th>
+                  <th class="px-5 py-3 text-left font-medium">Rôle</th>
+                  <th class="px-5 py-3 text-left font-medium">Version</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="row in aboutRows" :key="row.name">
+                  <tr class="border-b border-slate-50 last:border-0">
+                    <td class="px-5 py-2.5 font-medium text-slate-700" x-text="row.name"></td>
+                    <td class="px-5 py-2.5 text-slate-500" x-text="row.role"></td>
+                    <td class="px-5 py-2.5 font-mono text-xs text-slate-600" x-text="row.version"></td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+      </div>
+    </div>
+
   </main>
 </div>
 
@@ -974,7 +1185,7 @@
      ALPINE APP
 ════════════════════════════════════════════ -->
 <script>
-const SUPERVISOR_TAB_IDS = new Set(['quotas', 'live', 'history', 'directory', 'settings']);
+const SUPERVISOR_TAB_IDS = new Set(['quotas', 'live', 'history', 'directory', 'settings', 'about']);
 
 function initialActiveTabFromHash() {
   if (typeof window === 'undefined') return 'live';
@@ -999,6 +1210,7 @@ function supervisorApp() {
       { id: 'history',  label: 'Historique' },
       { id: 'directory', label: 'Annuaire' },
       { id: 'settings', label: 'Paramètres' },
+      { id: 'about',    label: 'À propos' },
     ],
 
     // ── Socket ───────────────────────────────────
@@ -1046,6 +1258,12 @@ function supervisorApp() {
     directoryError: '',
     directoryMsg: '',
     directoryForm: { matricule: '', nom: '', prenom: '' },
+
+    // ── À propos ─────────────────────────────────
+    aboutRows: [],
+    aboutLoading: false,
+    aboutLoaded: false,
+    aboutError: '',
 
     // ── Offres (admin) ────────────────────────────
     offersAdminRows: [],
@@ -1127,6 +1345,7 @@ function supervisorApp() {
       if (this.activeTab === 'directory') await this.loadDirectory(true);
       // Même logique pour « Gestion des offres » sur #settings.
       if (this.activeTab === 'settings') await this.loadOffersAdmin();
+      if (this.activeTab === 'about') await this.loadAbout(true);
       this.connectSocket();
       this.startTick();
     },
@@ -1159,6 +1378,7 @@ function supervisorApp() {
         if (!this.isAuth) return;
         if (value === 'directory') await this.loadDirectory();
         else if (value === 'settings') await this.loadOffersAdmin();
+        else if (value === 'about') await this.loadAbout();
       }, { immediate: true });
     },
 
@@ -1219,6 +1439,7 @@ function supervisorApp() {
           await this.loadAll();
           if (this.activeTab === 'directory') await this.loadDirectory(true);
           if (this.activeTab === 'settings') await this.loadOffersAdmin();
+          if (this.activeTab === 'about') await this.loadAbout(true);
           this.connectSocket();
           this.startTick();
         } else {
@@ -1430,6 +1651,59 @@ function supervisorApp() {
         this.directoryError = 'Erreur réseau.';
       } finally {
         this.directoryLoading = false;
+      }
+    },
+
+    async loadAbout(force = false) {
+      if (this.aboutLoaded && !force) return;
+      this.aboutLoading = true;
+      this.aboutError = '';
+      try {
+        const res = await fetch('/api/supervisor/system/about', {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        const data = await res.json();
+        if (res.ok) {
+          const rows = [];
+          if (data.app) {
+            rows.push({
+              name: data.app.name || 'Flowi',
+              role: 'Application',
+              version: data.app.version || '—',
+            });
+          }
+          if (data.runtime?.node) {
+            rows.push({ name: 'Node.js', role: 'Exécution', version: data.runtime.node });
+          }
+          rows.push({
+            name: 'PostgreSQL',
+            role: 'Base de données',
+            version: data.database || '—',
+          });
+          (data.dependencies || []).forEach((dep) => {
+            rows.push({
+              name: dep.name,
+              role: dep.role || 'Composant serveur',
+              version: dep.version || '—',
+            });
+          });
+          (data.frontend || []).forEach((fe) => {
+            rows.push({
+              name: fe.name,
+              role: fe.role || 'Interface',
+              version: fe.version || '—',
+            });
+          });
+          this.aboutRows = rows;
+          this.aboutLoaded = true;
+        } else {
+          this.aboutError = data.error?.message || 'Impossible de charger les versions.';
+        }
+      } catch {
+        this.aboutError = 'Erreur réseau.';
+      } finally {
+        this.aboutLoading = false;
       }
     },
 
