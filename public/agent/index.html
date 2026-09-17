@@ -396,7 +396,7 @@ function agentApp() {
     },
 
     get selectableOffers() {
-      return this.offers.filter(o => Number(o.is_active) === 1);
+      return this.offers.filter(o => o.is_active === true);
     },
 
     // ── Initialisation ───────────────────────────────
@@ -466,7 +466,7 @@ function agentApp() {
           return;
         }
         const data = await res.json();
-        if (!data.agent || data.agent.is_active !== 1) {
+        if (!data.agent || data.agent.is_active !== true) {
           this.clearIdentityLocal();
           return;
         }
@@ -515,14 +515,14 @@ function agentApp() {
 
         if (!this.isPaused && this.offerCode) {
           const selected = this.offers.find(o => o.code === this.offerCode);
-          if (!selected || Number(selected.is_active) !== 1) {
+          if (!selected || selected.is_active !== true) {
             this.offerCode = '';
             localStorage.removeItem('agentOffer');
             this.errorMsg = 'L’offre sélectionnée est indisponible. Merci de choisir une offre active.';
           }
         }
 
-        if (data.agent && data.agent.is_active === 1) {
+        if (data.agent && data.agent.is_active === true) {
           this.profilValideSelectionne = true;
           this.selectedProfile = {
             matricule: data.agent.matricule,
@@ -583,7 +583,7 @@ function agentApp() {
           code,
           label: t.nom ?? prev.label ?? code,
           color: t.color !== undefined ? t.color : prev.color,
-          is_active: Number(t.is_active) === 1 ? 1 : 0,
+          is_active: t.is_active === true,
           default_quota: prev.default_quota ?? 0,
         });
       }
@@ -591,7 +591,7 @@ function agentApp() {
       this.offers = next;
       if (!this.isPaused && this.offerCode) {
         const selected = this.offers.find(o => o.code === this.offerCode);
-        if (!selected || Number(selected.is_active) !== 1) {
+        if (!selected || selected.is_active !== true) {
           this.offerCode = '';
           localStorage.removeItem('agentOffer');
           this.errorMsg = 'L’offre sélectionnée est indisponible. Merci de choisir une offre active.';
@@ -655,7 +655,7 @@ function agentApp() {
         this.buildBlockStatus(snapshot);
         if (!this.isPaused && this.offerCode) {
           const selected = this.offers.find(o => o.code === this.offerCode);
-          if (!selected || Number(selected.is_active) !== 1) {
+          if (!selected || selected.is_active !== true) {
             this.offerCode = '';
             localStorage.removeItem('agentOffer');
             this.errorMsg = 'L’offre sélectionnée est indisponible. Merci de choisir une offre active.';

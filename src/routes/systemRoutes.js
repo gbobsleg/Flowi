@@ -5,7 +5,7 @@ const { spawn }    = require('child_process');
 const path         = require('path');
 const fs           = require('fs');
 const config       = require('../config');
-const db           = require('../db/sqlite');
+const db           = require('../db');
 const { requireSupervisor } = require('../middlewares/supervisorAuth');
 const { Errors }   = require('../middlewares/validate');
 
@@ -50,15 +50,15 @@ function semverGt(a, b) {
   return false;
 }
 
-function readSetting(key) {
-  const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(key);
+async function readSetting(key) {
+  const row = await db.queryOne('SELECT value FROM app_settings WHERE key = $1', [key]);
   if (!row || typeof row.value !== 'string') return '';
   return row.value.trim();
 }
 
-function resolveOtaRepo() {
-  const ownerFromDb = readSetting('github_owner');
-  const repoFromDb = readSetting('github_repo');
+async function resolveOtaRepo() {
+  const ownerFromDb = await readSetting('github_owner');
+  const repoFromDb = await readSetting('github_repo');
 
   const owner = ownerFromDb || String(config.GITHUB_OWNER || '').trim();
   const repo = repoFromDb || String(config.GITHUB_REPO || '').trim();
@@ -74,7 +74,7 @@ function resolveOtaRepo() {
  */
 router.get('/update/check', requireSupervisor, async (req, res) => {
   try {
-    const { owner, repo } = resolveOtaRepo();
+    const { owner, repo } = await resolveOtaRepo();
 
     if (!owner || !repo) {
       return res.status(503).json({

@@ -3,6 +3,7 @@ data
 .git
 .env
 *.db
+*.sqlite
 *.db-wal
 *.db-shm
 server.out

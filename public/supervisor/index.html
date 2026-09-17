@@ -448,8 +448,8 @@
                   <td class="px-4 py-3">
                     <span
                       class="inline-block rounded-full px-2 py-0.5 text-xs font-medium"
-                      :class="agent.is_active === 1 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
-                      x-text="agent.is_active === 1 ? 'Actif' : 'Inactif'"
+                      :class="agent.is_active === true ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
+                      x-text="agent.is_active === true ? 'Actif' : 'Inactif'"
                     ></span>
                   </td>
                   <td class="px-4 py-3">
@@ -482,10 +482,10 @@
                       @click="toggleDirectoryAgentStatus(agent)"
                       :disabled="agent._saving"
                       class="text-xs font-medium rounded-lg px-3 py-1.5 transition disabled:opacity-40"
-                      :class="agent.is_active === 1
+                      :class="agent.is_active === true
                         ? 'text-red-600 hover:bg-red-50'
                         : 'text-green-600 hover:bg-green-50'"
-                      x-text="agent.is_active === 1 ? 'Désactiver' : 'Activer'"
+                      x-text="agent.is_active === true ? 'Désactiver' : 'Activer'"
                     ></button>
                   </td>
                 </tr>
@@ -657,8 +657,8 @@
                     <div class="text-sm font-medium text-slate-800 truncate" x-text="offer.label"></div>
                     <div class="mt-1 flex items-center gap-2 flex-wrap">
                       <span class="text-xs rounded-full px-2 py-0.5"
-                        :class="Number(offer.is_active) === 1 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
-                        x-text="Number(offer.is_active) === 1 ? 'Active' : 'Inactive'"></span>
+                        :class="offer.is_active === true ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'"
+                        x-text="offer.is_active === true ? 'Active' : 'Inactive'"></span>
                       <span class="text-xs rounded-full px-2 py-0.5 bg-slate-100 text-slate-600"
                         x-text="'Quota défaut: ' + offer.default_quota"></span>
                       <span
@@ -679,7 +679,7 @@
                     </button>
                     <button
                       type="button"
-                      x-show="offer.is_active === 1"
+                      x-show="offer.is_active === true"
                       @click="deleteOffer(offer)"
                       :disabled="offerSaving"
                       class="text-xs rounded-lg px-2 py-1 border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -688,7 +688,7 @@
                     </button>
                     <button
                       type="button"
-                      x-show="offer.is_active === 0"
+                      x-show="offer.is_active === false"
                       @click="reactivateOffer(offer)"
                       :disabled="offerSaving"
                       class="text-xs rounded-lg px-2 py-1 border border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-40 disabled:cursor-not-allowed"
@@ -1481,7 +1481,7 @@ function supervisorApp() {
       this.directoryError = '';
       this.directoryMsg = '';
       try {
-        const action = agent.is_active === 1 ? 'deactivate' : 'activate';
+        const action = agent.is_active === true ? 'deactivate' : 'activate';
         const res = await fetch(`/api/supervisor/agents/${encodeURIComponent(agent.matricule)}/${action}`, {
           method: 'PATCH',
           credentials: 'include',
@@ -1489,7 +1489,7 @@ function supervisorApp() {
         const data = await res.json();
         if (res.ok && data.agent) {
           agent.is_active = data.agent.is_active;
-          this.directoryMsg = data.agent.is_active === 1 ? 'Agent réactivé.' : 'Agent désactivé.';
+          this.directoryMsg = data.agent.is_active === true ? 'Agent réactivé.' : 'Agent désactivé.';
         } else {
           this.directoryError = data.error?.message || "Impossible de modifier le statut de l'agent.";
         }
@@ -1623,7 +1623,7 @@ function supervisorApp() {
       return Math.min(Math.floor(n), 999999);
     },
 
-    /** Remplit offerForm depuis une ligne API (quota SQLite/JSON tolérant). */
+    /** Remplit offerForm depuis une ligne API (quota JSON tolérant). */
     editOffer(offer) {
       if (!offer) return;
       this.offerError = '';
@@ -1734,7 +1734,7 @@ function supervisorApp() {
     },
 
     async deleteOffer(offer) {
-      if (!offer || offer.is_active !== 1) return;
+      if (!offer || offer.is_active !== true) return;
       if (this.offerSaving) return;
       const confirmed = window.confirm(`Désactiver l'offre ${offer.code} ? Les pauses en cours ne seront pas interrompues.`);
       if (!confirmed) return;
@@ -1764,7 +1764,7 @@ function supervisorApp() {
     },
 
     async reactivateOffer(offer) {
-      if (!offer || offer.is_active !== 0) return;
+      if (!offer || offer.is_active !== false) return;
       if (this.offerSaving) return;
       const confirmed = window.confirm(`Voulez-vous réactiver l'offre ${offer.code} ?`);
       if (!confirmed) return;
