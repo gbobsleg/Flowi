@@ -16,6 +16,8 @@
     ::-webkit-scrollbar { width: 4px; height: 4px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+    .planning-grid th, .planning-grid td { min-width: 2.6rem; }
+    .planning-grid th.planning-offer, .planning-grid td.planning-offer { min-width: 9rem; max-width: 11rem; }
   </style>
 </head>
 
@@ -99,96 +101,94 @@
   <!-- Content -->
   <main class="flex-1 max-w-6xl mx-auto w-full px-4 py-6 space-y-6">
 
-    <!-- ── TAB : Quotas ──────────────────────────────── -->
-    <div x-show="activeTab === 'quotas'" x-cloak>
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-sm font-bold text-slate-700">Pilotage des quotas par offre</h2>
-        <p class="text-xs text-slate-400">Priorité : Quota fixe > Calcul (présents × %) > Défaut système</p>
-      </div>
-
-      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <template x-for="q in quotas" :key="q.offer.code">
-          <div class="bg-white rounded-md border shadow-sm overflow-hidden"
-            :class="q.blocked ? 'border-red-200' : 'border-shell-border'">
-
-            <!-- Offre header -->
-            <div class="px-4 py-3 border-b flex items-center justify-between"
-              :class="q.blocked ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-slate-100'">
-              <div class="flex items-center gap-2 min-w-0">
-                <span
-                  class="inline-block h-3.5 w-3.5 rounded-full border border-shell-border/80 shrink-0 shadow-sm"
-                  :style="{ backgroundColor: resolveOfferColor(q.offer.id ?? q.offer.code, q.offer.color) }"
-                  :title="q.offer.color ? q.offer.color : 'Couleur pastel (défaut)'"
-                ></span>
-                <div class="min-w-0">
-                  <span class="font-bold text-sm text-slate-800" x-text="q.offer.code"></span>
-                  <span class="text-xs text-slate-500 ml-1.5" x-text="q.offer.label"></span>
-                </div>
-              </div>
-              <div class="flex items-center gap-1.5">
-                <span class="text-xs font-mono font-semibold" :class="q.blocked ? 'text-red-600' : 'text-slate-600'"
-                  x-text="q.currentPaused + ' / ' + q.effectiveQuota"></span>
-                <span x-show="q.blocked"
-                  class="text-xs bg-red-100 text-red-600 rounded-full px-1.5 py-0.5 font-medium">Bloqué</span>
+    <!-- ── TAB : Grille ──────────────────────────────── -->
+    <div x-show="activeTab === 'grid'" x-cloak>
+      <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
+          <div class="flex flex-wrap items-end justify-between gap-3 mb-3">
+            <div>
+              <h2 class="text-sm font-bold text-slate-800">Grille 15 minutes</h2>
+              <p class="text-xs text-slate-500 mt-0.5">Consultation des effectifs planifiés et quotas autorisés par quart d’heure. Pas de temps réel.</p>
+              <div class="flex flex-wrap items-center gap-3 mt-1.5 text-[11px]">
+                <span class="font-semibold text-slate-700">Planifiés</span>
+                <span class="text-slate-300">/</span>
+                <span class="font-semibold text-brand-700">Autorisés</span>
               </div>
             </div>
-
-            <!-- Formulaire quota -->
-            <div class="p-4 space-y-3">
-              <!-- Quota fixe -->
+            <div class="flex flex-wrap items-end gap-2">
               <div>
-                <label class="block text-xs text-slate-500 mb-1">
-                  Quota fixe
-                  <span class="ml-1 text-slate-400">(vide = désactivé)</span>
-                </label>
+                <label class="block text-xs text-slate-500 mb-1">Jour</label>
                 <input
-                  type="number" min="0" step="1"
-                  :placeholder="'Défaut: ' + q.offer.default_quota"
-                  x-model.number="q._edit.fixedQuota"
-                  class="w-full border border-shell-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums"
+                  type="date"
+                  x-model="planningDay"
+                  @change="loadPlanningSlots"
+                  class="border border-shell-border rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
                 >
               </div>
-
-              <!-- Calcul par présents -->
-              <div class="grid grid-cols-2 gap-2">
-                <div>
-                  <label class="block text-xs text-slate-500 mb-1">Présents</label>
-                  <input type="number" min="0" step="1"
-                    x-model.number="q._edit.presentCount"
-                    placeholder="0"
-                    class="w-full border border-shell-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums">
-                </div>
-                <div>
-                  <label class="block text-xs text-slate-500 mb-1">% autorisé</label>
-                  <input type="number" min="0" max="100" step="1"
-                    x-model.number="q._edit.allowedPercent"
-                    placeholder="0"
-                    class="w-full border border-shell-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums">
-                </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">De</label>
+                <input
+                  type="time"
+                  step="900"
+                  x-model="planningGridFrom"
+                  @change="applyPlanningHours"
+                  class="border border-shell-border rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums"
+                >
               </div>
-
-              <!-- Quota effectif calculé (preview) -->
-              <div class="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
-                Quota effectif actuel :
-                <span class="font-semibold text-slate-800" x-text="q.effectiveQuota"></span>
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">À</label>
+                <input
+                  type="time"
+                  step="900"
+                  x-model="planningGridTo"
+                  @change="applyPlanningHours"
+                  class="border border-shell-border rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums"
+                >
               </div>
-
-              <!-- Feedback erreur -->
-              <p x-show="q._saveError" x-cloak class="text-xs text-red-500" x-text="q._saveError"></p>
-
-              <!-- Bouton -->
-              <button
-                @click="saveQuota(q)"
-                :disabled="q._saving"
-                class="w-full bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold rounded-lg py-2 transition"
-              >
-                <span x-show="q._saving">Enregistrement…</span>
-                <span x-show="!q._saving">Enregistrer</span>
-              </button>
             </div>
           </div>
-        </template>
-      </div>
+          <p x-show="planningGridHoursError" x-cloak class="text-xs text-red-500 mb-2" x-text="planningGridHoursError"></p>
+          <p x-show="planningSlotsError" x-cloak class="text-xs text-red-500 mb-2" x-text="planningSlotsError"></p>
+          <div class="overflow-x-auto border border-shell-border rounded-md">
+            <table class="planning-grid text-[10px] border-collapse">
+              <thead>
+                <tr class="bg-slate-50">
+                  <th class="planning-offer sticky left-0 z-10 bg-slate-50 px-2 py-1.5 text-left text-xs font-medium text-slate-500 border-b border-r border-shell-border">Offre</th>
+                  <template x-for="col in planningSlotColumns" :key="'h-' + col.minutes">
+                    <th
+                      class="px-0.5 py-1.5 text-center font-medium border-b border-shell-border whitespace-nowrap"
+                      :data-minutes="col.minutes"
+                      :class="isCurrentPlanningSlot(col.minutes) ? 'bg-brand-500 text-white' : 'text-slate-400'"
+                      x-text="col.label"
+                    ></th>
+                  </template>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="row in planningGridRows" :key="row.offerCode">
+                  <tr>
+                    <td class="planning-offer sticky left-0 z-10 bg-white px-2 py-1 border-r border-b border-shell-border">
+                      <div class="text-xs font-semibold text-slate-700" x-text="row.offerCode"></div>
+                      <div class="text-[10px] font-normal text-slate-500 leading-snug whitespace-normal" x-text="planningQuotaRule(row)"></div>
+                    </td>
+                    <template x-for="col in planningSlotColumns" :key="row.offerCode + '-' + col.minutes">
+                      <td
+                        class="px-0.5 py-1 text-center tabular-nums border-b border-slate-100"
+                        :class="planningCellClass(row, col.minutes)"
+                      >
+                        <span x-show="row.bySlot[col.minutes]">
+                          <span class="font-semibold text-slate-700" x-text="row.bySlot[col.minutes] ? row.bySlot[col.minutes].headcount : ''"></span>
+                          <span class="text-slate-300">/</span>
+                          <span class="font-semibold text-brand-700" x-text="row.bySlot[col.minutes] ? row.bySlot[col.minutes].allowed : ''"></span>
+                        </span>
+                        <span x-show="!row.bySlot[col.minutes]" class="text-slate-300">—</span>
+                      </td>
+                    </template>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </section>
     </div>
 
     <!-- ── TAB : Live ───────────────────────────────── -->
@@ -215,6 +215,74 @@
             </svg>
             <span x-text="maintenanceMode ? 'MODE URGENCE ACTIF — Cliquer pour désactiver' : 'MODE URGENCE'"></span>
           </button>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-md border border-shell-border shadow-sm mb-4 overflow-hidden">
+        <button
+          type="button"
+          class="w-full flex items-center justify-between gap-3 px-4 py-2.5 text-left hover:bg-slate-50 transition"
+          @click="liveOverridesOpen = !liveOverridesOpen"
+        >
+          <div class="min-w-0 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span class="text-xs font-semibold text-slate-700">Overrides par offre</span>
+            <span class="text-xs text-slate-500" x-text="liveOverrideSummary()"></span>
+          </div>
+          <svg
+            class="w-4 h-4 text-slate-400 shrink-0 transition-transform"
+            :class="liveOverridesOpen ? 'rotate-180' : ''"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </button>
+        <div x-show="liveOverridesOpen" x-cloak class="border-t border-slate-100">
+          <template x-for="q in quotas" :key="'live-ov-' + q.offer.code">
+            <div
+              class="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 border-b border-slate-50 last:border-0"
+              :class="q.blocked ? 'bg-red-50/70' : ''"
+            >
+              <div class="flex items-center gap-2 min-w-0 flex-1">
+                <span
+                  class="inline-block h-3 w-3 rounded-full border border-shell-border/80 shrink-0 shadow-sm"
+                  :style="{ backgroundColor: resolveOfferColor(q.offer.id ?? q.offer.code, q.offer.color) }"
+                ></span>
+                <span class="font-bold text-xs text-slate-800" x-text="q.offer.code"></span>
+                <span class="text-xs text-slate-500 truncate" x-text="q.offer.label"></span>
+              </div>
+              <span
+                class="text-xs font-mono font-semibold tabular-nums"
+                :class="q.blocked ? 'text-red-600' : 'text-slate-600'"
+                x-text="q.currentPaused + ' / ' + q.effectiveQuota"
+              ></span>
+              <span x-show="hasQuotaOverride(q)"
+                class="text-xs bg-brand-500/15 text-brand-700 rounded-full px-1.5 py-0.5 font-medium">Override</span>
+              <span x-show="q.blocked"
+                class="text-xs bg-red-100 text-red-600 rounded-full px-1.5 py-0.5 font-medium">Bloqué</span>
+              <div class="flex items-center gap-2 ml-auto">
+                <label class="text-xs text-slate-500 whitespace-nowrap">
+                  Forcer
+                  <span class="text-slate-400">(vide = off)</span>
+                </label>
+                <input
+                  type="number" min="0" step="1"
+                  x-model.number="q._edit.fixedQuota"
+                  class="w-20 border border-shell-border rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums"
+                >
+                <button
+                  type="button"
+                  @click="saveQuota(q)"
+                  :disabled="q._saving"
+                  class="bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold rounded-md px-3 py-1.5 transition"
+                >
+                  <span x-show="q._saving">…</span>
+                  <span x-show="!q._saving">Enregistrer</span>
+                </button>
+              </div>
+              <p x-show="q._saveError" x-cloak class="w-full text-xs text-red-500" x-text="q._saveError"></p>
+            </div>
+          </template>
+          <p x-show="!quotas.length" class="px-4 py-3 text-xs text-slate-400">Aucune offre.</p>
         </div>
       </div>
 
@@ -493,8 +561,23 @@
 
     <!-- ── TAB : Paramètres ────────────────────────── -->
     <div x-show="activeTab === 'settings'" x-cloak>
-      <h2 class="text-sm font-bold text-slate-700 mb-4">Paramètres système</h2>
+      <h2 class="text-sm font-bold text-slate-700 mb-3">Paramètres</h2>
+      <nav class="flex flex-wrap gap-1 mb-4 border-b border-shell-border">
+        <template x-for="sub in settingsTabs" :key="sub.id">
+          <button
+            type="button"
+            @click="navigateToSettingsSubtab(sub.id)"
+            class="px-3 py-2 text-xs font-medium border-b-2 -mb-px transition"
+            :class="settingsSubtab === sub.id
+              ? 'border-brand-500 text-brand-700'
+              : 'border-transparent text-slate-500 hover:text-slate-800'"
+            x-text="sub.label"
+          ></button>
+        </template>
+      </nav>
 
+      <!-- Sous-onglet Général -->
+      <div x-show="settingsSubtab === 'general'" x-cloak>
       <div class="bg-white rounded-md border border-shell-border shadow-sm divide-y divide-slate-100">
 
         <!-- Rétention historique -->
@@ -552,7 +635,50 @@
             :class="maxPauseMsgOk ? 'text-green-600' : 'text-red-500'"
             x-text="maxPauseMsg"></p>
         </div>
+      </div>
 
+      <section class="bg-white rounded-md border border-shell-border shadow-sm p-5 mt-4">
+        <h3 class="text-sm font-semibold text-slate-800 mb-1">Fenêtres de pause</h3>
+        <p class="text-xs text-slate-500 mb-3">Hors plage, quota = 0. Liste vide = pauses autorisées 24 h.</p>
+        <div class="space-y-2">
+          <template x-for="(w, idx) in pauseWindows" :key="'pw-' + idx">
+            <div class="flex items-center gap-2">
+              <span class="text-sm tabular-nums text-slate-700" x-text="w.start + ' – ' + w.end"></span>
+              <button type="button" @click="removePauseWindow(idx)"
+                class="text-xs text-red-600 hover:text-red-700 font-medium">Supprimer</button>
+            </div>
+          </template>
+          <p x-show="pauseWindows.length === 0" class="text-xs text-slate-400">Aucune plage : ouvert en continu.</p>
+        </div>
+        <form @submit.prevent="addPauseWindow" class="mt-3 flex flex-wrap items-end gap-2">
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Début</label>
+            <input type="time" x-model="pauseWindowDraft.start"
+              class="border border-shell-border rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums">
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Fin</label>
+            <input type="time" x-model="pauseWindowDraft.end"
+              class="border border-shell-border rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums">
+          </div>
+          <button type="submit"
+            class="bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-md px-3 py-2 transition">
+            Ajouter
+          </button>
+          <button type="button" @click="savePauseWindows" :disabled="pauseWindowsSaving"
+            class="bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold rounded-md px-4 py-2 transition">
+            <span x-show="pauseWindowsSaving">Enregistrement…</span>
+            <span x-show="!pauseWindowsSaving">Enregistrer les plages</span>
+          </button>
+        </form>
+        <p x-show="pauseWindowsError" x-cloak class="mt-2 text-xs text-red-500" x-text="pauseWindowsError"></p>
+        <p x-show="pauseWindowsMsg" x-cloak class="mt-2 text-xs text-green-600" x-text="pauseWindowsMsg"></p>
+      </section>
+      </div>
+
+      <!-- Sous-onglet Offres -->
+      <div x-show="settingsSubtab === 'offers'" x-cloak>
+      <div class="bg-white rounded-md border border-shell-border shadow-sm">
         <!-- Gestion des offres -->
         <div class="px-5 py-5">
           <div class="flex items-center justify-between mb-3">
@@ -606,6 +732,19 @@
                 >
               </div>
               <div>
+                <label class="block text-xs text-slate-500 mb-1">% autorisé</label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="1"
+                  x-model.number="offerForm.allowed_percent"
+                  placeholder="20"
+                  class="w-full border border-shell-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-slate-400"
+                >
+                <p class="mt-1 text-xs text-slate-400">Vide = repli sur le quota par défaut. Hors override Live.</p>
+              </div>
+              <div>
                 <label class="block text-xs text-slate-500 mb-1">Couleur personnalisée</label>
                 <div class="flex items-center gap-2 flex-wrap">
                   <input
@@ -653,6 +792,8 @@
                         x-text="offer.is_active === true ? 'Active' : 'Inactive'"></span>
                       <span class="text-xs rounded-full px-2 py-0.5 bg-slate-100 text-slate-600"
                         x-text="'Quota défaut: ' + offer.default_quota"></span>
+                      <span class="text-xs rounded-full px-2 py-0.5 bg-brand-500/15 text-brand-700"
+                        x-text="offerPercentBadge(offer)"></span>
                       <span
                         class="inline-block h-3 w-3 rounded-full border border-shell-border shrink-0 shadow-sm"
                         :style="{ backgroundColor: resolveOfferColor(offer.id ?? offer.code, offer.color) }"
@@ -730,6 +871,19 @@
                       >
                     </div>
                     <div>
+                      <label class="block text-xs text-slate-500 mb-1">% autorisé</label>
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        x-model.number="offerForm.allowed_percent"
+                        placeholder="20"
+                        class="w-full border border-shell-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-slate-400"
+                      >
+                      <p class="mt-1 text-xs text-slate-400">Vide = repli sur le quota par défaut. Indépendant de l’override Live.</p>
+                    </div>
+                    <div>
                       <label class="block text-xs text-slate-500 mb-1">Couleur personnalisée</label>
                       <div class="flex items-center gap-2 flex-wrap">
                         <input
@@ -774,8 +928,141 @@
             :class="offerMsgOk ? 'text-green-600' : 'text-red-500'"
             x-text="offerMsg"></p>
           <p x-show="offerError" x-cloak class="mt-2 text-xs text-red-500" x-text="offerError"></p>
+          <div x-show="offerPercentRetry" x-cloak class="mt-3 flex flex-wrap items-center gap-2">
+            <p class="text-xs text-red-500" x-text="offerPercentRetry?.message || 'Offre créée, % non enregistré'"></p>
+            <button
+              type="button"
+              @click="retryOfferPercent"
+              :disabled="offerPercentRetrying"
+              class="text-xs font-semibold rounded-md px-3 py-1.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white transition"
+            >
+              <span x-show="offerPercentRetrying">…</span>
+              <span x-show="!offerPercentRetrying">Réessayer le %</span>
+            </button>
+          </div>
         </div>
+      </div>
+      </div>
 
+      <!-- Sous-onglet Planning -->
+      <div x-show="settingsSubtab === 'planning'" x-cloak class="space-y-4">
+        <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
+          <h3 class="text-sm font-semibold text-slate-800 mb-3">Importer un planning</h3>
+          <form @submit.prevent="importPlanning" class="flex flex-wrap items-end gap-3">
+            <div class="min-w-0 flex-1">
+              <label class="block text-xs text-slate-500 mb-1">Fichier CSV (max 5 Mo)</label>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                x-ref="planningFile"
+                class="block w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-brand-500 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-brand-600"
+              >
+            </div>
+            <button
+              type="submit"
+              :disabled="planningImporting"
+              class="bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold rounded-md px-4 py-2 transition"
+            >
+              <span x-show="planningImporting">Import…</span>
+              <span x-show="!planningImporting">Importer</span>
+            </button>
+          </form>
+          <p x-show="planningImportError" x-cloak class="mt-2 text-xs text-red-500" x-text="planningImportError"></p>
+          <div x-show="planningImportResult" x-cloak class="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+            <div class="bg-slate-50 rounded-md px-3 py-2 border border-shell-border">
+              <p class="text-slate-500">Période</p>
+              <p class="font-semibold text-slate-800" x-text="planningPeriodLabel()"></p>
+            </div>
+            <div class="bg-slate-50 rounded-md px-3 py-2 border border-shell-border">
+              <p class="text-slate-500">Lignes détail</p>
+              <p class="font-semibold tabular-nums text-slate-800" x-text="planningImportResult?.detailRows ?? '—'"></p>
+            </div>
+            <div class="bg-slate-50 rounded-md px-3 py-2 border border-shell-border">
+              <p class="text-slate-500">Créneaux agrégés</p>
+              <p class="font-semibold tabular-nums text-slate-800" x-text="planningImportResult?.activityRows ?? '—'"></p>
+            </div>
+            <div class="bg-slate-50 rounded-md px-3 py-2 border border-shell-border"
+              :class="(planningImportResult?.unmapped || []).length ? 'border-amber-200 bg-amber-50' : ''">
+              <p class="text-slate-500">Non mappés</p>
+              <p class="font-semibold tabular-nums text-slate-800" x-text="(planningImportResult?.unmapped || []).length"></p>
+            </div>
+          </div>
+          <p x-show="planningImportResult && (planningImportResult.unmapped || []).length" x-cloak
+            class="mt-2 text-xs text-amber-700"
+            x-text="'Libellés à classer : ' + (planningImportResult.unmapped || []).join(', ')"></p>
+          <p x-show="planningImportResult" x-cloak class="mt-3">
+            <button
+              type="button"
+              @click="openPlanningGrid()"
+              class="text-xs font-semibold text-brand-700 hover:text-brand-800 underline"
+            >
+              Voir la grille
+            </button>
+          </p>
+        </section>
+
+        <section class="bg-white rounded-md border border-shell-border shadow-sm overflow-hidden">
+          <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
+            <div>
+              <h3 class="text-sm font-semibold text-slate-800">Mapping des libellés WFM</h3>
+              <p class="text-xs text-slate-500 mt-0.5">Associer à une offre Flowi ou ignorer. Recalcule la grille sans réimporter.</p>
+            </div>
+            <button
+              type="button"
+              @click="savePlanningMapping"
+              :disabled="planningMappingSaving"
+              class="bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold rounded-md px-4 py-2 transition"
+            >
+              <span x-show="planningMappingSaving">Enregistrement…</span>
+              <span x-show="!planningMappingSaving">Enregistrer le mapping</span>
+            </button>
+          </div>
+          <p x-show="planningMappingError" x-cloak class="px-5 py-2 text-xs text-red-500" x-text="planningMappingError"></p>
+          <p x-show="planningMappingMsg" x-cloak class="px-5 py-2 text-xs text-green-600" x-text="planningMappingMsg"></p>
+          <div x-show="planningMappings.length === 0" class="px-5 py-8 text-center text-sm text-slate-400">
+            Aucun libellé. Importez un CSV pour les voir apparaître.
+          </div>
+          <div x-show="planningMappings.length > 0" class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="text-xs text-slate-400 uppercase tracking-wider border-b border-slate-100 bg-slate-50">
+                  <th class="px-5 py-3 text-left font-medium">Libellé WFM</th>
+                  <th class="px-5 py-3 text-left font-medium">Statut</th>
+                  <th class="px-5 py-3 text-left font-medium">Offre / action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="row in planningMappings" :key="row.label">
+                  <tr class="border-b border-slate-50 last:border-0">
+                    <td class="px-5 py-2.5 font-medium text-slate-700" x-text="row.label"></td>
+                    <td class="px-5 py-2.5">
+                      <span class="text-xs rounded-full px-1.5 py-0.5 font-medium"
+                        :class="mappingStatusClass(row)"
+                        x-text="mappingStatusLabel(row)"></span>
+                    </td>
+                    <td class="px-5 py-2.5">
+                      <select
+                        x-model="row.offerCode"
+                        class="w-full max-w-xs border border-shell-border rounded-md px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400"
+                      >
+                        <option value="">Non classé</option>
+                        <option value="__ignore__">Ignorer</option>
+                        <template x-for="offer in mappingOfferOptions" :key="offer.code">
+                          <option :value="offer.code" x-text="offer.code + ' — ' + offer.label"></option>
+                        </template>
+                      </select>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <!-- Sous-onglet Accès -->
+      <div x-show="settingsSubtab === 'access'" x-cloak>
+      <div class="bg-white rounded-md border border-shell-border shadow-sm divide-y divide-slate-100">
         <!-- Sécurité : PIN superviseur -->
         <div class="px-5 py-5">
           <h3 class="text-sm font-semibold text-slate-800 mb-1">Sécurité</h3>
@@ -956,6 +1243,7 @@
             x-text="githubOtaMsg"></p>
         </div>
       </div>
+      </div>
 
     </div>
 
@@ -996,6 +1284,10 @@
           <p class="text-sm text-slate-600 mb-3">Tableau des pauses <span class="font-medium text-slate-800">en cours</span> : agent, offre, heure de départ, temps écoulé. Le chrono passe orange puis rouge selon la durée.</p>
           <dl class="space-y-3">
             <div>
+              <dt class="text-xs font-semibold text-slate-800">Overrides par offre</dt>
+              <dd class="text-sm text-slate-600">Bande repliable au-dessus du tableau. Repliée, elle indique combien d’offres sont bloquées et combien d’overrides sont actifs. Dépliée : compteur en pause / quota, et champ pour forcer un plafond fixe (vide = off). Le % et l’effectif planifié ne se règlent pas ici.</dd>
+            </div>
+            <div>
               <dt class="text-xs font-semibold text-slate-800">MODE URGENCE</dt>
               <dd class="text-sm text-slate-600">Bloque <span class="font-medium text-slate-800">tout nouveau départ</span> en pause. Les pauses déjà commencées continuent. Le bouton devient « MODE URGENCE ACTIF — Cliquer pour désactiver » pour lever le blocage.</dd>
             </div>
@@ -1007,31 +1299,27 @@
         </section>
 
         <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
-          <h3 class="text-sm font-semibold text-slate-800 mb-2">Onglet Quotas</h3>
-          <p class="text-sm text-slate-600 mb-3">Une carte par offre. Le chiffre « en pause / quota » indique combien de personnes sont parties par rapport au plafond. Badge <span class="font-medium text-slate-800">Bloqué</span> : plus de départ sur cette offre.</p>
-          <p class="text-sm text-slate-600 mb-3">Règle : <span class="font-medium text-slate-800">quota fixe</span> s’il est renseigné, sinon <span class="font-medium text-slate-800">présents × % autorisé</span>, sinon le <span class="font-medium text-slate-800">quota par défaut</span> de l’offre.</p>
+          <h3 class="text-sm font-semibold text-slate-800 mb-2">Onglet Grille</h3>
+          <p class="text-sm text-slate-600 mb-3">Consultation des effectifs planifiés (gris) et quotas autorisés (teal) par quart d’heure. Pas de temps réel, pas d’import.</p>
           <dl class="space-y-3">
             <div>
-              <dt class="text-xs font-semibold text-slate-800">Quota fixe</dt>
-              <dd class="text-sm text-slate-600">Nombre maximum figé. Champ vide = ce n’est pas utilisé.</dd>
+              <dt class="text-xs font-semibold text-slate-800">Jour / De / À</dt>
+              <dd class="text-sm text-slate-600">Filtre la plage visible. Défaut 9h–17h (heure de fin non incluse).</dd>
             </div>
             <div>
-              <dt class="text-xs font-semibold text-slate-800">Présents</dt>
-              <dd class="text-sm text-slate-600">Effectif du jour sur l’offre, saisi par le superviseur.</dd>
+              <dt class="text-xs font-semibold text-slate-800">Règle sous l’offre</dt>
+              <dd class="text-sm text-slate-600">Rappelle comment le quota autorisé est calculé (override, % des planifiés, ou défaut).</dd>
             </div>
             <div>
-              <dt class="text-xs font-semibold text-slate-800">% autorisé</dt>
-              <dd class="text-sm text-slate-600">Part de cet effectif qui peut être en pause en même temps.</dd>
-            </div>
-            <div>
-              <dt class="text-xs font-semibold text-slate-800">Quota effectif actuel</dt>
-              <dd class="text-sm text-slate-600">Le plafond réellement appliqué (aperçu).</dd>
-            </div>
-            <div>
-              <dt class="text-xs font-semibold text-slate-800">Enregistrer</dt>
-              <dd class="text-sm text-slate-600">Applique les valeurs de cette carte seulement.</dd>
+              <dt class="text-xs font-semibold text-slate-800">Raster 15 min</dt>
+              <dd class="text-sm text-slate-600">Créneaux [T, T+15). Un agent compte s’il y a intersection non vide avec [début, fin). Exemple : 09:00–12:00 occupe 09:00 … 11:45, pas 12:00.</dd>
             </div>
           </dl>
+        </section>
+
+        <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
+          <h3 class="text-sm font-semibold text-slate-800 mb-2">Pile des quotas</h3>
+          <p class="text-sm text-slate-600 mb-3">Ordre appliqué au départ en pause : <span class="font-medium text-slate-800">hors fenêtre → 0</span> ; sinon <span class="font-medium text-slate-800">override Live</span> s’il est renseigné ; sinon <span class="font-medium text-slate-800">floor(effectif × %)</span> avec un minimum de 1 dès qu’il y a au moins une tête planifiée ; sinon le <span class="font-medium text-slate-800">quota par défaut</span> de l’offre. Jour sans planning = défaut.</p>
         </section>
 
         <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
@@ -1094,46 +1382,43 @@
 
         <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
           <h3 class="text-sm font-semibold text-slate-800 mb-2">Onglet Paramètres</h3>
+          <p class="text-sm text-slate-600 mb-3">Quatre sous-onglets, conservés dans l’URL (<span class="font-mono text-xs">#settings/general</span>, <span class="font-mono text-xs">offers</span>, <span class="font-mono text-xs">planning</span>, <span class="font-mono text-xs">access</span>).</p>
           <dl class="space-y-3">
             <div>
-              <dt class="text-xs font-semibold text-slate-800">Rétention des données historiques</dt>
-              <dd class="text-sm text-slate-600">Les pauses terminées plus anciennes que N jours sont effacées. N’affecte pas les pauses en cours. Enregistrer applique la valeur.</dd>
+              <dt class="text-xs font-semibold text-slate-800">Général — Rétention</dt>
+              <dd class="text-sm text-slate-600">Les pauses terminées plus anciennes que N jours sont effacées. N’affecte pas les pauses en cours.</dd>
             </div>
             <div>
-              <dt class="text-xs font-semibold text-slate-800">Durée maximale d’une pause</dt>
-              <dd class="text-sm text-slate-600">Au-delà, retour automatique (motif Auto dans l’historique). Enregistrer applique la valeur.</dd>
+              <dt class="text-xs font-semibold text-slate-800">Général — Durée maximale</dt>
+              <dd class="text-sm text-slate-600">Au-delà, retour automatique (motif Auto dans l’historique).</dd>
             </div>
             <div>
-              <dt class="text-xs font-semibold text-slate-800">Nouvelle offre</dt>
-              <dd class="text-sm text-slate-600">Une offre = une équipe pour les quotas et l’écran agent (code, libellé, quota par défaut, couleur).</dd>
+              <dt class="text-xs font-semibold text-slate-800">Général — Fenêtres de pause</dt>
+              <dd class="text-sm text-slate-600">Liste de plages début–fin. Vide = ouvert 24 h. Sinon, hors plage, aucun nouveau départ (quota 0). Les pauses déjà commencées ne sont pas coupées.</dd>
             </div>
             <div>
-              <dt class="text-xs font-semibold text-slate-800">Modifier / Annuler</dt>
-              <dd class="text-sm text-slate-600">Ouvre ou ferme le formulaire de modification d’une offre.</dd>
+              <dt class="text-xs font-semibold text-slate-800">Offres — % autorisé</dt>
+              <dd class="text-sm text-slate-600">Part de l’effectif planifié qui peut être en pause. Vide = quota par défaut de l’offre. Indépendant de l’override Live. Si la création de l’offre réussit mais pas l’enregistrement du %, un bouton « Réessayer le % » rejoue uniquement cette étape.</dd>
             </div>
             <div>
-              <dt class="text-xs font-semibold text-slate-800">Supprimer</dt>
-              <dd class="text-sm text-slate-600">Rend l’offre inactive : elle n’est plus proposée aux agents. Les pauses en cours ne sont pas interrompues.</dd>
+              <dt class="text-xs font-semibold text-slate-800">Offres — Nouvelle / Modifier / Supprimer / Réactiver</dt>
+              <dd class="text-sm text-slate-600">Une offre = une équipe (code, libellé, quota par défaut, %, couleur). Supprimer la rend inactive sans couper les pauses en cours.</dd>
             </div>
             <div>
-              <dt class="text-xs font-semibold text-slate-800">Réactiver</dt>
-              <dd class="text-sm text-slate-600">L’offre redevient choisissable.</dd>
+              <dt class="text-xs font-semibold text-slate-800">Planning — Import</dt>
+              <dd class="text-sm text-slate-600">Rapport Genesys WFM Planning individuel (CSV Windows). Les lignes résumé (heures payées) sont ignorées. Un réimport remplace les jours du fichier. Les identifiants agents ne sont pas stockés. Après import, « Voir la grille » ouvre l’onglet Grille sur le premier jour du fichier.</dd>
             </div>
             <div>
-              <dt class="text-xs font-semibold text-slate-800">Enregistrer le code</dt>
-              <dd class="text-sm text-slate-600">Change le code PIN pour ouvrir cette console. Champ vide = le code actuel est conservé.</dd>
+              <dt class="text-xs font-semibold text-slate-800">Planning — Mapping</dt>
+              <dd class="text-sm text-slate-600">Plusieurs libellés WFM peuvent viser la même offre. « Ignorer » écarte le libellé. Enregistrer recalcule la grille sans renvoyer le CSV.</dd>
             </div>
             <div>
-              <dt class="text-xs font-semibold text-slate-800">Vérifier les mises à jour</dt>
-              <dd class="text-sm text-slate-600">Compare la version de ce serveur avec la dernière version disponible.</dd>
+              <dt class="text-xs font-semibold text-slate-800">Accès — PIN</dt>
+              <dd class="text-sm text-slate-600">Change le code PIN de cette console. Champ vide = le code actuel est conservé.</dd>
             </div>
             <div>
-              <dt class="text-xs font-semibold text-slate-800">Appliquer la mise à jour</dt>
-              <dd class="text-sm text-slate-600">Installe la nouvelle version sur ce serveur. Ne fermez pas la page pendant l’opération.</dd>
-            </div>
-            <div>
-              <dt class="text-xs font-semibold text-slate-800">Dépôt GitHub / Enregistrer / Supprimer le token</dt>
-              <dd class="text-sm text-slate-600">Indique où chercher les mises à jour. Le jeton sert uniquement si le dépôt est privé.</dd>
+              <dt class="text-xs font-semibold text-slate-800">Accès — Mises à jour</dt>
+              <dd class="text-sm text-slate-600">Vérifier / appliquer une version GitHub. Ne fermez pas la page pendant l’installation. Le jeton sert uniquement si le dépôt est privé.</dd>
             </div>
           </dl>
         </section>
@@ -1177,12 +1462,106 @@
      ALPINE APP
 ════════════════════════════════════════════ -->
 <script>
-const SUPERVISOR_TAB_IDS = new Set(['quotas', 'live', 'history', 'directory', 'settings', 'about']);
+const SUPERVISOR_TAB_IDS = new Set(['live', 'history', 'grid', 'directory', 'settings', 'about']);
+const SETTINGS_SUBTAB_IDS = new Set(['general', 'offers', 'planning', 'access']);
+const LEGACY_TAB_REDIRECTS = { quotas: 'live', planning: 'grid' };
 
-function initialActiveTabFromHash() {
-  if (typeof window === 'undefined') return 'live';
-  const raw = (window.location.hash || '').replace(/^#/, '').trim();
-  return SUPERVISOR_TAB_IDS.has(raw) ? raw : 'live';
+function parseSupervisorHash(hash) {
+  const raw = String(hash || '').replace(/^#/, '').trim();
+  const parts = raw.split('/').filter(Boolean);
+  const seg0 = parts[0] || '';
+  const seg1 = parts[1] || '';
+
+  if (!seg0) {
+    return { tab: 'live', settingsSubtab: 'general', canonical: 'live', rewrite: true };
+  }
+  if (LEGACY_TAB_REDIRECTS[seg0]) {
+    const tab = LEGACY_TAB_REDIRECTS[seg0];
+    return { tab, settingsSubtab: 'general', canonical: tab, rewrite: true };
+  }
+  if (!SUPERVISOR_TAB_IDS.has(seg0)) {
+    return { tab: 'live', settingsSubtab: 'general', canonical: 'live', rewrite: true };
+  }
+  if (seg0 === 'settings') {
+    const sub = SETTINGS_SUBTAB_IDS.has(seg1) ? seg1 : 'general';
+    const canonical = `settings/${sub}`;
+    return {
+      tab: 'settings',
+      settingsSubtab: sub,
+      canonical,
+      rewrite: raw !== canonical,
+    };
+  }
+  return {
+    tab: seg0,
+    settingsSubtab: 'general',
+    canonical: seg0,
+    rewrite: parts.length > 1,
+  };
+}
+
+function supervisorLocationBase() {
+  return window.location.pathname + (window.location.search || '');
+}
+
+function parisClock(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Paris',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const g = (type) => parts.find((p) => p.type === type).value;
+  const hour = Number(g('hour'));
+  const minute = Number(g('minute'));
+  return {
+    day: `${g('year')}-${g('month')}-${g('day')}`,
+    hour,
+    minute,
+    slotMinutes: hour * 60 + Math.floor(minute / 15) * 15,
+  };
+}
+
+function formatSlotMinutes(minutes) {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function parseHmClient(raw) {
+  const m = String(raw || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+const PLANNING_HOURS_KEY = 'flowi.planningGridHours';
+const PLANNING_HOURS_DEFAULT = { from: '09:00', to: '17:00' };
+
+function loadStoredPlanningHours() {
+  try {
+    const raw = localStorage.getItem(PLANNING_HOURS_KEY);
+    if (!raw) return { ...PLANNING_HOURS_DEFAULT };
+    const parsed = JSON.parse(raw);
+    const from = parseHmClient(parsed.from);
+    const to = parseHmClient(parsed.to);
+    if (from == null || to == null || !(from < to)) return { ...PLANNING_HOURS_DEFAULT };
+    return { from: formatSlotMinutes(from), to: formatSlotMinutes(to) };
+  } catch {
+    return { ...PLANNING_HOURS_DEFAULT };
+  }
+}
+
+function initialRouteFromHash() {
+  if (typeof window === 'undefined') {
+    return { tab: 'live', settingsSubtab: 'general' };
+  }
+  return parseSupervisorHash(window.location.hash);
 }
 
 function supervisorApp() {
@@ -1194,15 +1573,23 @@ function supervisorApp() {
     loginLoading: false,
 
     // ── Navigation ───────────────────────────────
-    activeTab: initialActiveTabFromHash(),
+    activeTab: initialRouteFromHash().tab,
+    settingsSubtab: initialRouteFromHash().settingsSubtab,
+    liveOverridesOpen: false,
     _supervisorTabRoutingBound: false,
     tabs: [
-      { id: 'live',     label: 'Live' },
-      { id: 'quotas',   label: 'Quotas' },
-      { id: 'history',  label: 'Historique' },
+      { id: 'live',      label: 'Live' },
+      { id: 'history',   label: 'Historique' },
+      { id: 'grid',      label: 'Grille' },
       { id: 'directory', label: 'Annuaire' },
-      { id: 'settings', label: 'Paramètres' },
-      { id: 'about',    label: 'À propos' },
+      { id: 'settings',  label: 'Paramètres' },
+      { id: 'about',     label: 'À propos' },
+    ],
+    settingsTabs: [
+      { id: 'general',  label: 'Général' },
+      { id: 'offers',   label: 'Offres' },
+      { id: 'planning', label: 'Planning' },
+      { id: 'access',   label: 'Accès' },
     ],
 
     // ── Socket ───────────────────────────────────
@@ -1210,7 +1597,27 @@ function supervisorApp() {
     _socket: null,
 
     // ── Quotas ───────────────────────────────────
-    quotas: [],  // augmentés de _edit, _saving, _saveError
+    quotas: [],  // augmentés de _edit, _saving, _saveError, currentHeadcount
+
+    // ── Planning ─────────────────────────────────
+    planningDay: parisClock().day,
+    planningImporting: false,
+    planningImportError: '',
+    planningImportResult: null,
+    planningMappings: [],
+    planningMappingSaving: false,
+    planningMappingError: '',
+    planningMappingMsg: '',
+    planningSlots: [],
+    planningSlotsError: '',
+    planningGridFrom: loadStoredPlanningHours().from,
+    planningGridTo: loadStoredPlanningHours().to,
+    planningGridHoursError: '',
+    pauseWindows: [],
+    pauseWindowDraft: { start: '10:00', end: '11:00' },
+    pauseWindowsSaving: false,
+    pauseWindowsError: '',
+    pauseWindowsMsg: '',
 
     // ── Live ─────────────────────────────────────
     livePauses: [], // { id, agent_matricule, nom, prenom, agentName, offerCode, startTime, _forcing }
@@ -1266,6 +1673,7 @@ function supervisorApp() {
       code: '',
       label: '',
       default_quota: 2,
+      allowed_percent: 20,
       color: '#000000',
       useDefaultColor: true,
     },
@@ -1273,6 +1681,8 @@ function supervisorApp() {
     offerError: '',
     offerMsg: '',
     offerMsgOk: true,
+    offerPercentRetry: null,
+    offerPercentRetrying: false,
     /** `null` | `'__new__'` | code offre — un seul panneau ouvert */
     expandedOfferCode: null,
 
@@ -1291,6 +1701,30 @@ function supervisorApp() {
         return 0;
       });
       return rows;
+    },
+
+    get mappingOfferOptions() {
+      if (this.histOffers.length) return this.histOffers;
+      return this.quotas.map((q) => q.offer).filter(Boolean);
+    },
+
+    get planningGridRows() {
+      return (this.planningSlots || []).map((offer) => {
+        const bySlot = {};
+        for (const s of offer.slots || []) bySlot[s.slotMinutes] = s;
+        return { ...offer, bySlot };
+      });
+    },
+
+    get planningSlotColumns() {
+      const from = parseHmClient(this.planningGridFrom);
+      const to = parseHmClient(this.planningGridTo);
+      const start = from == null ? 9 * 60 : Math.floor(from / 15) * 15;
+      const end = to == null ? 17 * 60 : (to % 15 === 0 ? to : Math.ceil(to / 15) * 15);
+      if (!(start < end)) {
+        return this.buildPlanningSlotColumns(9 * 60, 17 * 60);
+      }
+      return this.buildPlanningSlotColumns(start, end);
     },
 
     // ── Mode urgence (maintenance) ───────────────
@@ -1335,8 +1769,8 @@ function supervisorApp() {
       // Après stabilisation réseau (quotas/auth) : re-fetch annuaire si onglet actif,
       // sinon le 1er load (watch + directoryLoaded) peut rester vide en race / cache navigateur (ex. Firefox F5).
       if (this.activeTab === 'directory') await this.loadDirectory(true);
-      // Même logique pour « Gestion des offres » sur #settings.
-      if (this.activeTab === 'settings') await this.loadOffersAdmin();
+      if (this.activeTab === 'settings') await this.loadSettingsSubtabData(this.settingsSubtab);
+      if (this.activeTab === 'grid') await this.loadPlanningSlots();
       if (this.activeTab === 'about') await this.loadAbout(true);
       this.connectSocket();
       this.startTick();
@@ -1369,46 +1803,58 @@ function supervisorApp() {
       this.$watch('activeTab', async (value) => {
         if (!this.isAuth) return;
         if (value === 'directory') await this.loadDirectory();
-        else if (value === 'settings') await this.loadOffersAdmin();
+        else if (value === 'settings') await this.loadSettingsSubtabData(this.settingsSubtab);
+        else if (value === 'grid') await this.loadPlanningSlots();
         else if (value === 'about') await this.loadAbout();
       }, { immediate: true });
+
+      this.$watch('settingsSubtab', async (value) => {
+        if (!this.isAuth || this.activeTab !== 'settings') return;
+        await this.loadSettingsSubtabData(value);
+      });
     },
 
-    /** Met à jour uniquement activeTab depuis location.hash ; charge async délégué au $watch(activeTab). */
+    applyParsedSupervisorRoute(parsed) {
+      if (parsed.rewrite) {
+        window.history.replaceState(null, '', `${supervisorLocationBase()}#${parsed.canonical}`);
+      }
+      if (parsed.tab === 'settings') this.settingsSubtab = parsed.settingsSubtab;
+      if (this.activeTab !== parsed.tab) this.activeTab = parsed.tab;
+    },
+
+    /** Met à jour activeTab / settingsSubtab depuis location.hash ; charge async délégué au $watch(activeTab). */
     applyHashChangeToActiveTab() {
       if (!this.isAuth) return;
-      const pathname = window.location.pathname;
-      const search = window.location.search || '';
-      const base = pathname + search;
-      const raw = (window.location.hash || '').replace(/^#/, '').trim();
-
-      let next = raw;
-      if (!SUPERVISOR_TAB_IDS.has(raw)) {
-        window.history.replaceState(null, '', `${base}#live`);
-        next = 'live';
-      }
-      if (this.activeTab !== next) this.activeTab = next;
+      this.applyParsedSupervisorRoute(parseSupervisorHash(window.location.hash));
     },
 
-    /** Au premier affichage authentifié : hash vide/invalide → replaceState #live ; sinon activeTab = hash valide. */
+    /** Au premier affichage authentifié : hash vide/invalide/legacy → replaceState ; sinon état = hash. */
     syncSupervisorTabFromUrl() {
-      const pathname = window.location.pathname;
-      const search = window.location.search || '';
-      const base = pathname + search;
-      const raw = (window.location.hash || '').replace(/^#/, '').trim();
-
-      if (!raw || !SUPERVISOR_TAB_IDS.has(raw)) {
-        window.history.replaceState(null, '', `${base}#live`);
-        this.activeTab = 'live';
-        return;
-      }
-      this.activeTab = raw;
+      this.applyParsedSupervisorRoute(parseSupervisorHash(window.location.hash));
     },
 
     /** Clic onglet : navigation native (historique) ; activeTab mis à jour via hashchange. */
     navigateToTab(tabId) {
       if (!SUPERVISOR_TAB_IDS.has(tabId)) return;
+      if (tabId === 'settings') {
+        const sub = SETTINGS_SUBTAB_IDS.has(this.settingsSubtab) ? this.settingsSubtab : 'general';
+        window.location.hash = `#settings/${sub}`;
+        return;
+      }
       window.location.hash = `#${tabId}`;
+    },
+
+    navigateToSettingsSubtab(sub) {
+      const next = SETTINGS_SUBTAB_IDS.has(sub) ? sub : 'general';
+      window.location.hash = `#settings/${next}`;
+    },
+
+    async loadSettingsSubtabData(sub) {
+      if (sub === 'offers') {
+        await Promise.all([this.loadOffersAdmin(), this.loadQuotas()]);
+      } else if (sub === 'planning') {
+        await this.loadPlanning();
+      }
     },
 
     // ── Auth ─────────────────────────────────────
@@ -1430,7 +1876,8 @@ function supervisorApp() {
           this.ensureSupervisorTabRouting();
           await this.loadAll();
           if (this.activeTab === 'directory') await this.loadDirectory(true);
-          if (this.activeTab === 'settings') await this.loadOffersAdmin();
+          if (this.activeTab === 'settings') await this.loadSettingsSubtabData(this.settingsSubtab);
+          if (this.activeTab === 'grid') await this.loadPlanningSlots();
           if (this.activeTab === 'about') await this.loadAbout(true);
           this.connectSocket();
           this.startTick();
@@ -1453,25 +1900,71 @@ function supervisorApp() {
     },
 
     // ── Quotas ───────────────────────────────────
+    hasQuotaOverride(q) {
+      const v = q?.rule?.fixedQuota;
+      return v !== null && v !== undefined && v !== '';
+    },
+
+    liveOverrideSummary() {
+      const blocked = this.quotas.filter((q) => q.blocked).length;
+      const overrides = this.quotas.filter((q) => this.hasQuotaOverride(q)).length;
+      return `${blocked} offres bloquées / ${overrides} overrides actifs`;
+    },
+
     async loadQuotas() {
       try {
-        const res  = await fetch('/api/supervisor/quotas', {
+        const clock = parisClock();
+        const [res, slotsRes] = await Promise.all([
+          fetch('/api/supervisor/quotas', {
+            credentials: 'include',
+            cache: 'no-store',
+          }),
+          fetch(`/api/supervisor/planning/slots?day=${encodeURIComponent(clock.day)}`, {
+            credentials: 'include',
+            cache: 'no-store',
+          }),
+        ]);
+        const data = await res.json();
+        const slotsData = slotsRes.ok ? await slotsRes.json() : { offers: [] };
+        const slotByCode = new Map();
+        for (const offer of slotsData.offers || []) {
+          const cur = (offer.slots || []).find((s) => s.slotMinutes === clock.slotMinutes);
+          slotByCode.set(offer.offerCode, cur || null);
+        }
+        this.quotas = (data.quotas || []).map(q => {
+          const slot = slotByCode.get(q.offer.code);
+          return {
+            ...q,
+            currentHeadcount: slot ? slot.headcount : null,
+            currentAllowed: slot ? slot.allowed : null,
+            _edit: {
+              fixedQuota:     q.rule.fixedQuota    ?? '',
+              allowedPercent: q.rule.allowedPercent ?? '',
+            },
+            _saving:   false,
+            _saveError: '',
+          };
+        });
+        this.histOffers = this.quotas.map(q => q.offer);
+      } catch { /* silencieux */ }
+    },
+
+    async refreshCurrentSlotStats() {
+      try {
+        const clock = parisClock();
+        const res = await fetch(`/api/supervisor/planning/slots?day=${encodeURIComponent(clock.day)}`, {
           credentials: 'include',
           cache: 'no-store',
         });
+        if (!res.ok) return;
         const data = await res.json();
-        this.quotas = (data.quotas || []).map(q => ({
-          ...q,
-          _edit: {
-            fixedQuota:     q.rule.fixedQuota    ?? '',
-            presentCount:   q.rule.presentCount  ?? '',
-            allowedPercent: q.rule.allowedPercent ?? '',
-          },
-          _saving:   false,
-          _saveError: '',
-        }));
-        // Alimenter la liste des offres pour les filtres historique
-        this.histOffers = this.quotas.map(q => q.offer);
+        for (const offer of data.offers || []) {
+          const q = this.quotas.find((x) => x.offer.code === offer.offerCode);
+          if (!q) continue;
+          const cur = (offer.slots || []).find((s) => s.slotMinutes === clock.slotMinutes);
+          q.currentHeadcount = cur ? cur.headcount : null;
+          q.currentAllowed = cur ? cur.allowed : null;
+        }
       } catch { /* silencieux */ }
     },
 
@@ -1479,25 +1972,10 @@ function supervisorApp() {
       q._saving   = true;
       q._saveError = '';
 
-      const body = {};
-      const fq = q._edit.fixedQuota;
-      const pc = q._edit.presentCount;
-      const ap = q._edit.allowedPercent;
-
-      if (fq !== '' && fq !== null) body.fixedQuota = parseInt(fq, 10);
-      else if (fq === '' || fq === null) body.fixedQuota = null;  // effacer explicitement
-
-      if (pc !== '' && ap !== '') {
-        body.presentCount   = parseInt(pc, 10);
-        body.allowedPercent = parseFloat(ap);
-      }
-
-      // Nécessite au moins un champ
-      if (Object.keys(body).length === 0) {
-        q._saveError = 'Renseignez au moins un paramètre.';
-        q._saving    = false;
-        return;
-      }
+      const n = parseInt(q._edit.fixedQuota, 10);
+      const body = {
+        fixedQuota: Number.isInteger(n) ? n : null,
+      };
 
       try {
         const res  = await fetch(`/api/supervisor/quotas/${q.offer.code}`, {
@@ -1511,14 +1989,289 @@ function supervisorApp() {
           q.effectiveQuota = data.effectiveQuota;
           q.currentPaused  = data.currentPaused;
           q.blocked        = data.blocked;
-          q.rule.fixedQuota    = body.fixedQuota    ?? q.rule.fixedQuota;
-          q.rule.presentCount  = body.presentCount  ?? q.rule.presentCount;
-          q.rule.allowedPercent = body.allowedPercent ?? q.rule.allowedPercent;
+          q.rule.fixedQuota = body.fixedQuota;
+          await this.refreshCurrentSlotStats();
         } else {
           q._saveError = data.error?.message || 'Erreur lors de la sauvegarde.';
         }
       } catch { q._saveError = 'Erreur réseau.'; }
       finally  { q._saving = false; }
+    },
+
+    // ── Planning ─────────────────────────────────
+    mappingStatusLabel(row) {
+      if (row.offerCode === '__ignore__') return 'Ignoré';
+      if (row.offerCode) return 'Mappé';
+      return 'Non classé';
+    },
+
+    mappingStatusClass(row) {
+      if (row.offerCode === '__ignore__') return 'bg-slate-100 text-slate-600';
+      if (row.offerCode) return 'bg-brand-500/15 text-brand-700';
+      return 'bg-amber-50 text-amber-700';
+    },
+
+    planningPeriodLabel() {
+      const days = this.planningImportResult?.days || [];
+      if (!days.length) return '—';
+      if (days.length === 1) return days[0];
+      return `${days[0]} → ${days[days.length - 1]}`;
+    },
+
+    isCurrentPlanningSlot(minutes) {
+      const clock = parisClock();
+      return this.planningDay === clock.day && minutes === clock.slotMinutes;
+    },
+
+    planningCellClass(row, minutes) {
+      return this.isCurrentPlanningSlot(minutes) ? 'bg-brand-500/15' : '';
+    },
+
+    planningQuotaRule(row) {
+      if (row.fixedQuota != null) {
+        return `Override ${row.fixedQuota} — écrase le calcul de la grille`;
+      }
+      if (row.allowedPercent != null) {
+        return `${row.allowedPercent} % des planifiés (min. 1 si effectif > 0)`;
+      }
+      return `Quota défaut ${row.defaultQuota} (% non renseigné)`;
+    },
+
+    buildPlanningSlotColumns(start, end) {
+      const cols = [];
+      for (let minutes = start; minutes < end && minutes < 1440; minutes += 15) {
+        cols.push({ minutes, label: formatSlotMinutes(minutes) });
+      }
+      return cols;
+    },
+
+    applyPlanningHours() {
+      const from = parseHmClient(this.planningGridFrom);
+      const to = parseHmClient(this.planningGridTo);
+      if (from == null || to == null) {
+        this.planningGridHoursError = 'Horaires HH:MM invalides.';
+        return;
+      }
+      const start = Math.floor(from / 15) * 15;
+      const end = to % 15 === 0 ? to : Math.ceil(to / 15) * 15;
+      if (!(start < end)) {
+        this.planningGridHoursError = 'L’heure de fin doit être après le début.';
+        return;
+      }
+      this.planningGridHoursError = '';
+      this.planningGridFrom = formatSlotMinutes(start);
+      this.planningGridTo = formatSlotMinutes(end);
+      try {
+        localStorage.setItem(PLANNING_HOURS_KEY, JSON.stringify({
+          from: this.planningGridFrom,
+          to: this.planningGridTo,
+        }));
+      } catch { /* ignore quota / mode privé */ }
+      this.$nextTick(() => this.scrollPlanningGrid());
+    },
+
+    scrollPlanningGrid() {
+      const table = document.querySelector('.planning-grid');
+      if (!table) return;
+      const cols = this.planningSlotColumns;
+      if (!cols.length) return;
+      const clock = parisClock();
+      let minutes = cols[0].minutes;
+      if (this.planningDay === clock.day) {
+        const current = cols.find((c) => c.minutes === clock.slotMinutes);
+        if (current) minutes = current.minutes;
+      } else {
+        const occupied = [];
+        for (const offer of this.planningSlots || []) {
+          for (const slot of offer.slots || []) {
+            if (cols.some((c) => c.minutes === slot.slotMinutes)) occupied.push(slot.slotMinutes);
+          }
+        }
+        if (occupied.length) minutes = Math.min(...occupied);
+      }
+      const th = table.querySelector(`thead th[data-minutes="${minutes}"]`);
+      if (th) th.scrollIntoView({ inline: 'start', block: 'nearest' });
+    },
+
+    mergePlanningMappings(apiRows, extraUnmapped = []) {
+      const byLabel = new Map();
+      for (const row of apiRows || []) {
+        let offerCode = '';
+        if (row.offerCode) offerCode = row.offerCode;
+        else if (row.ignored) offerCode = '__ignore__';
+        else if (row.offerId == null && row.unmapped !== true) offerCode = '__ignore__';
+        byLabel.set(row.label, { label: row.label, offerCode });
+      }
+      for (const label of extraUnmapped || []) {
+        if (!byLabel.has(label)) byLabel.set(label, { label, offerCode: '' });
+      }
+      this.planningMappings = [...byLabel.values()].sort((a, b) =>
+        a.label.localeCompare(b.label, 'fr')
+      );
+    },
+
+    async loadPlanning() {
+      await Promise.all([this.loadPlanningMapping(), this.loadPlanningSlots()]);
+    },
+
+    async loadPlanningMapping() {
+      try {
+        const res = await fetch('/api/supervisor/planning/mapping', {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        this.mergePlanningMappings(data.mappings || [], this.planningImportResult?.unmapped || []);
+      } catch { /* silencieux */ }
+    },
+
+    async loadPlanningSlots() {
+      this.planningSlotsError = '';
+      const day = this.planningDay || parisClock().day;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+        this.planningSlotsError = 'Date invalide.';
+        return;
+      }
+      try {
+        const res = await fetch(`/api/supervisor/planning/slots?day=${encodeURIComponent(day)}`, {
+          credentials: 'include',
+          cache: 'no-store',
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          this.planningSlotsError = data.error?.message || 'Impossible de charger la grille.';
+          return;
+        }
+        this.planningSlots = data.offers || [];
+        this.$nextTick(() => this.scrollPlanningGrid());
+      } catch {
+        this.planningSlotsError = 'Erreur réseau.';
+      }
+    },
+
+    async importPlanning() {
+      const input = this.$refs.planningFile;
+      const file = input && input.files && input.files[0];
+      if (!file) {
+        this.planningImportError = 'Choisissez un fichier CSV.';
+        return;
+      }
+      this.planningImporting = true;
+      this.planningImportError = '';
+      try {
+        const body = new FormData();
+        body.append('file', file);
+        const res = await fetch('/api/supervisor/planning/import', {
+          method: 'POST',
+          credentials: 'include',
+          body,
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          this.planningImportError = data.error?.message || 'Import refusé.';
+          return;
+        }
+        this.planningImportResult = data;
+        const days = data.days || [];
+        if (days.length) this.planningDay = days[0];
+        await Promise.all([this.loadPlanningMapping(), this.loadPlanningSlots(), this.loadQuotas()]);
+      } catch {
+        this.planningImportError = 'Erreur réseau.';
+      } finally {
+        this.planningImporting = false;
+      }
+    },
+
+    openPlanningGrid() {
+      const days = this.planningImportResult?.days || [];
+      if (days.length) this.planningDay = days[0];
+      this.navigateToTab('grid');
+    },
+
+    async savePlanningMapping() {
+      const mappings = this.planningMappings
+        .filter((row) => row.offerCode !== '')
+        .map((row) => ({
+          label: row.label,
+          offerCode: row.offerCode === '__ignore__' ? null : row.offerCode,
+        }));
+      if (!mappings.length) {
+        this.planningMappingError = 'Classez au moins un libellé (offre ou Ignorer).';
+        return;
+      }
+      this.planningMappingSaving = true;
+      this.planningMappingError = '';
+      this.planningMappingMsg = '';
+      try {
+        const res = await fetch('/api/supervisor/planning/mapping', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ mappings }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          this.planningMappingError = data.error?.message || 'Enregistrement refusé.';
+          return;
+        }
+        this.mergePlanningMappings(data.mappings || [], this.planningImportResult?.unmapped || []);
+        this.planningMappingMsg = 'Mapping enregistré, grille recalculée.';
+        await Promise.all([this.loadPlanningSlots(), this.loadQuotas()]);
+        setTimeout(() => { this.planningMappingMsg = ''; }, 4000);
+      } catch {
+        this.planningMappingError = 'Erreur réseau.';
+      } finally {
+        this.planningMappingSaving = false;
+      }
+    },
+
+    addPauseWindow() {
+      this.pauseWindowsError = '';
+      const start = parseHmClient(this.pauseWindowDraft.start);
+      const end = parseHmClient(this.pauseWindowDraft.end);
+      if (start == null || end == null) {
+        this.pauseWindowsError = 'Horaires HH:MM invalides.';
+        return;
+      }
+      if (!(start < end)) {
+        this.pauseWindowsError = 'Le début doit précéder la fin.';
+        return;
+      }
+      const startLabel = formatSlotMinutes(start);
+      const endLabel = formatSlotMinutes(end);
+      this.pauseWindows = [...this.pauseWindows, { start: startLabel, end: endLabel }];
+    },
+
+    removePauseWindow(idx) {
+      this.pauseWindows = this.pauseWindows.filter((_, i) => i !== idx);
+    },
+
+    async savePauseWindows() {
+      this.pauseWindowsSaving = true;
+      this.pauseWindowsError = '';
+      this.pauseWindowsMsg = '';
+      try {
+        const res = await fetch('/api/supervisor/settings/pause-windows', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ windows: this.pauseWindows }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          this.pauseWindowsError = data.error?.message || 'Enregistrement refusé.';
+          return;
+        }
+        this.pauseWindows = data.windows || [];
+        this.pauseWindowsMsg = 'Plages enregistrées.';
+        await this.loadQuotas();
+        setTimeout(() => { this.pauseWindowsMsg = ''; }, 4000);
+      } catch {
+        this.pauseWindowsError = 'Erreur réseau.';
+      } finally {
+        this.pauseWindowsSaving = false;
+      }
     },
 
     // ── Live ─────────────────────────────────────
@@ -1835,6 +2588,63 @@ function supervisorApp() {
       return normalized;
     },
 
+    offerAllowedPercent(offer) {
+      const q = this.quotas.find((x) => x.offer.code === offer?.code);
+      const v = q?.rule?.allowedPercent;
+      if (v === null || v === undefined || v === '') return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    },
+
+    offerPercentBadge(offer) {
+      const p = this.offerAllowedPercent(offer);
+      return p == null ? '% —' : `${p} %`;
+    },
+
+    parseOfferAllowedPercent() {
+      const raw = this.offerForm.allowed_percent;
+      if (raw === '' || raw === null || raw === undefined) return { ok: true, value: null };
+      const n = Number(raw);
+      if (!Number.isFinite(n) || n < 0 || n > 100) return { ok: false, value: null };
+      return { ok: true, value: n };
+    },
+
+    async putOfferAllowedPercent(code, percent) {
+      const res = await fetch(`/api/supervisor/quotas/${encodeURIComponent(code)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ allowedPercent: percent }),
+      });
+      let data = {};
+      try { data = await res.json(); } catch { /* ignore */ }
+      return { ok: res.ok, data };
+    },
+
+    async retryOfferPercent() {
+      if (!this.offerPercentRetry || this.offerPercentRetrying) return;
+      this.offerPercentRetrying = true;
+      this.offerError = '';
+      try {
+        const { ok, data } = await this.putOfferAllowedPercent(
+          this.offerPercentRetry.code,
+          this.offerPercentRetry.percent
+        );
+        if (!ok) {
+          this.offerError = data.error?.message || this.offerPercentRetry.message;
+          return;
+        }
+        this.offerPercentRetry = null;
+        this.offerMsgOk = true;
+        this.offerMsg = '% enregistré.';
+        await Promise.all([this.loadOffersAdmin(), this.loadQuotas()]);
+      } catch {
+        this.offerError = 'Erreur réseau.';
+      } finally {
+        this.offerPercentRetrying = false;
+      }
+    },
+
     _resetOfferForm() {
       this.offerForm = {
         mode: 'create',
@@ -1842,6 +2652,7 @@ function supervisorApp() {
         code: '',
         label: '',
         default_quota: 2,
+        allowed_percent: 20,
         color: '#000000',
         useDefaultColor: true,
       };
@@ -1903,6 +2714,7 @@ function supervisorApp() {
         code: offer.code || '',
         label: offer.label != null ? String(offer.label) : '',
         default_quota: this._parseDefaultQuota(offer.default_quota),
+        allowed_percent: this.offerAllowedPercent(offer) ?? '',
         color: hex || '#000000',
         useDefaultColor: !hex,
       };
@@ -1957,6 +2769,13 @@ function supervisorApp() {
         return;
       }
 
+      const parsedPct = this.parseOfferAllowedPercent();
+      if (!parsedPct.ok) {
+        this.offerError = 'Le % autorisé doit être un nombre entre 0 et 100.';
+        this.offerSaving = false;
+        return;
+      }
+
       const payload = {
         label,
         default_quota: defaultQuota,
@@ -1987,8 +2806,28 @@ function supervisorApp() {
           return;
         }
 
+        const created = this.offerForm.mode === 'create';
+        const offerCode = created ? code : this.offerForm.originalCode;
+        const shouldPutPercent = parsedPct.value !== null || !created;
+        if (shouldPutPercent) {
+          const pct = await this.putOfferAllowedPercent(offerCode, parsedPct.value);
+          if (!pct.ok) {
+            this.offerPercentRetry = {
+              code: offerCode,
+              percent: parsedPct.value,
+              message: created ? 'Offre créée, % non enregistré' : 'Offre mise à jour, % non enregistré',
+            };
+            this.offerMsg = '';
+            this.expandedOfferCode = null;
+            this._resetOfferForm();
+            await Promise.all([this.loadOffersAdmin(), this.loadQuotas()]);
+            return;
+          }
+        }
+
+        this.offerPercentRetry = null;
         this.offerMsgOk = true;
-        this.offerMsg = this.offerForm.mode === 'create' ? 'Offre créée.' : 'Offre mise à jour.';
+        this.offerMsg = created ? 'Offre créée.' : 'Offre mise à jour.';
         this.expandedOfferCode = null;
         this._resetOfferForm();
         await Promise.all([this.loadOffersAdmin(), this.loadQuotas()]);
@@ -2068,6 +2907,20 @@ function supervisorApp() {
     },
 
     // ── Paramètres ───────────────────────────────
+    parsePauseWindowsSetting(raw) {
+      if (Array.isArray(raw)) {
+        return raw.filter((w) => w && w.start && w.end).map((w) => ({ start: w.start, end: w.end }));
+      }
+      if (typeof raw !== 'string' || !raw.trim()) return [];
+      try {
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+        return parsed.filter((w) => w && w.start && w.end).map((w) => ({ start: w.start, end: w.end }));
+      } catch {
+        return [];
+      }
+    },
+
     async loadSettings() {
       try {
         const res  = await fetch('/api/supervisor/settings', {
@@ -2083,6 +2936,7 @@ function supervisorApp() {
         this.githubTokenInput              = '';
         this.supervisorPinConfigured       = !!data.settings?.supervisor_pin_configured;
         this.supervisorPinInput            = '';
+        this.pauseWindows                  = this.parsePauseWindowsSetting(data.settings?.pause_windows);
         this.updateThresholds();
       } catch { /* silencieux */ }
     },
@@ -2390,6 +3244,19 @@ function supervisorApp() {
           q.currentPaused  = evt.currentPaused;
           q.blocked        = evt.blockedForNewStarts;
         }
+      });
+
+      socket.on('quotas:update', (list) => {
+        if (!Array.isArray(list)) return;
+        for (const entry of list) {
+          const q = this.quotas.find(x => x.offer.code === entry.code);
+          if (!q) continue;
+          q.effectiveQuota = entry.quota_max;
+          q.currentPaused  = entry.pauses_en_cours;
+          q.blocked        = (entry.pauses_en_cours ?? 0) >= (entry.quota_max ?? 0);
+        }
+        this.refreshCurrentSlotStats();
+        if (this.activeTab === 'grid') this.loadPlanningSlots();
       });
 
       socket.on('offer:block-status', (evt) => {
