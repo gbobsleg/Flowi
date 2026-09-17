@@ -1,6 +1,6 @@
 /**
  * Amorçage idempotent des données applicatives (paramètres, offres, quotas, agents de test).
- * Exécuter après les migrations (001_initial_schema.sql). Idempotent.
+ * Exécuter après les migrations. Idempotent.
  */
 require('dotenv').config();
 
@@ -17,6 +17,9 @@ const APP_SETTINGS = [
   ['github_repo', 'Flowi'],
   ['github_token', ''],
   ['supervisor_pin', '1234'],
+  ['planning_import_weekdays', '[1,2,3,4,5]'],
+  ['planning_skip_french_holidays', '1'],
+  ['pause_windows', '[]'],
 ];
 
 const OFFERS = [
@@ -85,13 +88,25 @@ async function run() {
       for (const [code] of OFFERS) {
         await client.query(
           `INSERT INTO quota_rules (offer_id, fixed_quota, present_count, allowed_percent, updated_at)
-           SELECT o.id, o.default_quota, NULL, NULL, $1
+           SELECT o.id, NULL, NULL, 20, $1
            FROM offers o
            WHERE o.code = $2
            ON CONFLICT (offer_id) DO NOTHING`,
           [now, code]
         );
       }
+
+      await client.query(
+        `UPDATE quota_rules qr
+         SET fixed_quota = NULL,
+             allowed_percent = 20,
+             updated_at = $1
+         FROM offers o
+         WHERE qr.offer_id = o.id
+           AND qr.fixed_quota IS NOT DISTINCT FROM o.default_quota
+           AND qr.allowed_percent IS NULL`,
+        [now]
+      );
 
       for (const [matricule, nom, prenom, isActive] of AGENTS) {
         await client.query(

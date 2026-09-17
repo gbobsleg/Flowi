@@ -277,9 +277,9 @@
               </td>
               <td class="px-5 py-3">
                 <span
-                  class="inline-block text-slate-900 text-xs font-mono rounded px-1.5 py-0.5 border border-shell-border"
+                  class="inline-block text-slate-900 text-xs rounded px-1.5 py-0.5 border border-shell-border"
                   :style="{ backgroundColor: resolveOfferColorByCode(p.offerCode) }"
-                  x-text="p.offerCode">
+                  x-text="p.offerLabel || offerLabel(p.offerCode)">
                 </span>
               </td>
               <td class="px-5 py-3 text-right font-mono font-semibold tabular-nums">
@@ -382,6 +382,25 @@ function agentApp() {
 
     get selectableOffers() {
       return this.offers.filter(o => o.is_active === true);
+    },
+
+    offerLabel(code) {
+      if (!code) return 'Offre';
+      const o = this.offers.find((x) => x.code === code);
+      if (o && o.label) return o.label;
+      const t = this.quotasTiles.find((q) => q.code === code);
+      if (t && t.nom) return t.nom;
+      return 'Offre';
+    },
+
+    clearInvalidStoredOffer() {
+      if (this.isPaused || !this.offerCode) return false;
+      const selected = this.offers.find((o) => o.code === this.offerCode);
+      if (selected && selected.is_active === true) return false;
+      this.offerCode = '';
+      localStorage.removeItem('agentOffer');
+      this.errorMsg = 'L’offre sélectionnée est indisponible. Choisissez une offre active.';
+      return true;
     },
 
     // ── Initialisation ───────────────────────────────
@@ -498,14 +517,7 @@ function agentApp() {
           this.applyQuotasPayload(data.quotas);
         }
 
-        if (!this.isPaused && this.offerCode) {
-          const selected = this.offers.find(o => o.code === this.offerCode);
-          if (!selected || selected.is_active !== true) {
-            this.offerCode = '';
-            localStorage.removeItem('agentOffer');
-            this.errorMsg = 'L’offre sélectionnée est indisponible. Merci de choisir une offre active.';
-          }
-        }
+        if (!this.isPaused && this.offerCode) this.clearInvalidStoredOffer();
 
         if (data.agent && data.agent.is_active === true) {
           this.profilValideSelectionne = true;
@@ -532,6 +544,7 @@ function agentApp() {
               agent_matricule: p.agent_matricule,
               agentName: `${p.prenom} ${p.nom}`,
               offerCode: entry.offer.code,
+              offerLabel: entry.offer.label,
               startTime: p.start_time,
             });
           }
@@ -574,14 +587,7 @@ function agentApp() {
       }
       next.sort((a, b) => String(a.code).localeCompare(String(b.code)));
       this.offers = next;
-      if (!this.isPaused && this.offerCode) {
-        const selected = this.offers.find(o => o.code === this.offerCode);
-        if (!selected || selected.is_active !== true) {
-          this.offerCode = '';
-          localStorage.removeItem('agentOffer');
-          this.errorMsg = 'L’offre sélectionnée est indisponible. Merci de choisir une offre active.';
-        }
-      }
+      this.clearInvalidStoredOffer();
     },
 
     evaluateBlockStatus() {
@@ -638,14 +644,7 @@ function agentApp() {
         if (!Array.isArray(snapshot)) return;
         this.offers = snapshot.map(s => s.offer);
         this.buildBlockStatus(snapshot);
-        if (!this.isPaused && this.offerCode) {
-          const selected = this.offers.find(o => o.code === this.offerCode);
-          if (!selected || selected.is_active !== true) {
-            this.offerCode = '';
-            localStorage.removeItem('agentOffer');
-            this.errorMsg = 'L’offre sélectionnée est indisponible. Merci de choisir une offre active.';
-          }
-        }
+        if (!this.isPaused && this.offerCode) this.clearInvalidStoredOffer();
         this.allPauses = [];
         for (const entry of snapshot) {
           for (const p of entry.pauses) {
@@ -654,6 +653,7 @@ function agentApp() {
               agent_matricule: p.agent_matricule,
               agentName: `${p.prenom} ${p.nom}`,
               offerCode: entry.offer.code,
+              offerLabel: entry.offer.label,
               startTime: p.start_time,
             });
           }
@@ -667,6 +667,7 @@ function agentApp() {
           agent_matricule: evt.agent_matricule,
           agentName: evt.agentName,
           offerCode: evt.offerCode,
+          offerLabel: this.offerLabel(evt.offerCode),
           startTime: evt.startTime,
         });
         // Mise à jour de mon état si c'est moi

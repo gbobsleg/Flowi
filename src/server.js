@@ -7,7 +7,7 @@ const path         = require('path');
 
 const config      = require('./config');
 const db          = require('./db');
-const { router: agentRouter, buildSnapshot, emitOfferUpdate, emitQuotasUpdate } = require('./routes/agentRoutes');
+const { router: agentRouter, buildSnapshot, emitOfferUpdate, emitQuotasUpdate, getParisClock } = require('./routes/agentRoutes');
 const supervisorRouter = require('./routes/supervisorRoutes');
 const systemRouter     = require('./routes/systemRoutes');
 
@@ -119,16 +119,6 @@ io.on('connection', socket => {
     const existingSession = activeSessions.get(matricule);
     const existingSocketId = existingSession ? existingSession.socketId : null;
     const existingDeviceId = existingSession ? existingSession.deviceId : null;
-    const existingSocketIsPresent = !!(existingSocketId && io.sockets.sockets.has(existingSocketId));
-    console.log('[session] identify attempt', {
-      matricule,
-      clientId,
-      deviceId,
-      existingSocketId: existingSocketId || null,
-      existingDeviceId: existingDeviceId || null,
-      hasExistingSocket: existingSocketIsPresent,
-      activeSessions: Array.from(activeSessions.entries()),
-    });
 
     if (existingSocketId && existingSocketId !== clientId) {
       const sameDevice = existingDeviceId === deviceId;
@@ -181,6 +171,7 @@ async function getMaxMs() {
 }
 
 let autoCloseRunning = false;
+let lastQuotaSlotKey = null;
 
 async function closeExpiredPauses() {
   const maxMs = await getMaxMs();
@@ -245,6 +236,30 @@ async function purgeHistory() {
   );
 
   if (result.rowCount > 0) console.log(`[purge] ${result.rowCount} pause(s) supprimée(s) (rétention: ${days} j)`);
+
+  const staleOffers = await db.queryAll(
+    `SELECT id FROM offers o
+     WHERE o.purge_requested_at IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM pauses p WHERE p.offer_id = o.id)`
+  );
+  if (staleOffers.length === 0) return;
+
+  let deleted = 0;
+  await db.withTransaction(async (client) => {
+    for (const offer of staleOffers) {
+      const stillUsed = await client.query(
+        'SELECT 1 FROM pauses WHERE offer_id = $1 LIMIT 1',
+        [offer.id]
+      );
+      if (stillUsed.rowCount > 0) continue;
+      await client.query('DELETE FROM quota_rules WHERE offer_id = $1', [offer.id]);
+      await client.query('UPDATE wfm_activity_mappings SET offer_id = NULL WHERE offer_id = $1', [offer.id]);
+      await client.query('DELETE FROM planning_slots WHERE offer_id = $1', [offer.id]);
+      await client.query('DELETE FROM offers WHERE id = $1', [offer.id]);
+      deleted += 1;
+    }
+  });
+  if (deleted > 0) console.log(`[purge] ${deleted} offre(s) supprimée(s)`);
 }
 
 async function start() {
@@ -255,6 +270,15 @@ async function start() {
     autoCloseRunning = true;
     closeExpiredPauses()
       .catch(err => console.error('[scheduler] auto-close', err))
+      .then(async () => {
+        const clock = getParisClock();
+        if (clock.minute % 15 !== 0) return;
+        const key = `${clock.day}:${clock.slotMinutes}`;
+        if (key === lastQuotaSlotKey) return;
+        lastQuotaSlotKey = key;
+        await emitQuotasUpdate(io);
+      })
+      .catch(err => console.error('[scheduler] quotas-slot', err))
       .finally(() => { autoCloseRunning = false; });
   }, SCHEDULER_INTERVAL_MS);
 

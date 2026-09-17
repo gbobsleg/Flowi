@@ -167,7 +167,7 @@
                 <template x-for="row in planningGridRows" :key="row.offerCode">
                   <tr>
                     <td class="planning-offer sticky left-0 z-10 bg-white px-2 py-1 border-r border-b border-shell-border">
-                      <div class="text-xs font-semibold text-slate-700" x-text="row.offerCode"></div>
+                      <div class="text-xs font-semibold text-slate-700" x-text="row.label"></div>
                       <div class="text-[10px] font-normal text-slate-500 leading-snug whitespace-normal" x-text="planningQuotaRule(row)"></div>
                     </td>
                     <template x-for="col in planningSlotColumns" :key="row.offerCode + '-' + col.minutes">
@@ -225,7 +225,7 @@
           @click="liveOverridesOpen = !liveOverridesOpen"
         >
           <div class="min-w-0 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            <span class="text-xs font-semibold text-slate-700">Overrides par offre</span>
+            <span class="text-xs font-semibold text-slate-700">Quotas forcés par offre</span>
             <span class="text-xs text-slate-500" x-text="liveOverrideSummary()"></span>
           </div>
           <svg
@@ -247,8 +247,7 @@
                   class="inline-block h-3 w-3 rounded-full border border-shell-border/80 shrink-0 shadow-sm"
                   :style="{ backgroundColor: resolveOfferColor(q.offer.id ?? q.offer.code, q.offer.color) }"
                 ></span>
-                <span class="font-bold text-xs text-slate-800" x-text="q.offer.code"></span>
-                <span class="text-xs text-slate-500 truncate" x-text="q.offer.label"></span>
+                <span class="font-semibold text-xs text-slate-800 truncate" x-text="q.offer.label"></span>
               </div>
               <span
                 class="text-xs font-mono font-semibold tabular-nums"
@@ -256,13 +255,13 @@
                 x-text="q.currentPaused + ' / ' + q.effectiveQuota"
               ></span>
               <span x-show="hasQuotaOverride(q)"
-                class="text-xs bg-brand-500/15 text-brand-700 rounded-full px-1.5 py-0.5 font-medium">Override</span>
+                class="text-xs bg-brand-500/15 text-brand-700 rounded-full px-1.5 py-0.5 font-medium">Forcé</span>
               <span x-show="q.blocked"
                 class="text-xs bg-red-100 text-red-600 rounded-full px-1.5 py-0.5 font-medium">Bloqué</span>
               <div class="flex items-center gap-2 ml-auto">
                 <label class="text-xs text-slate-500 whitespace-nowrap">
                   Forcer
-                  <span class="text-slate-400">(vide = off)</span>
+                  <span class="text-slate-400">(vide = désactivé)</span>
                 </label>
                 <input
                   type="number" min="0" step="1"
@@ -303,9 +302,9 @@
                 <td class="px-5 py-3 font-medium text-slate-700" x-text="p.agentName"></td>
                 <td class="px-5 py-3">
                   <span
-                    class="inline-block text-slate-900 text-xs font-mono rounded px-1.5 py-0.5 border border-shell-border"
+                    class="inline-block text-slate-900 text-xs rounded px-1.5 py-0.5 border border-shell-border"
                     :style="{ backgroundColor: resolveOfferColorByCode(p.offerCode) }"
-                    x-text="p.offerCode"></span>
+                    x-text="p.offerLabel || offerLabel(p.offerCode)"></span>
                 </td>
                 <td class="px-5 py-3 text-slate-500 text-xs tabular-nums" x-text="formatTime(p.startTime)"></td>
                 <td class="px-5 py-3 text-right font-mono font-semibold tabular-nums">
@@ -389,8 +388,8 @@
                 <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
                   <td class="px-4 py-3 font-medium text-slate-700" x-text="`${row.prenom} ${row.nom}`"></td>
                   <td class="px-4 py-3">
-                    <span class="inline-block bg-slate-100 text-slate-600 text-xs font-mono rounded px-1.5 py-0.5"
-                      x-text="row.offer_code"></span>
+                    <span class="inline-block bg-slate-100 text-slate-700 text-xs rounded px-1.5 py-0.5"
+                      x-text="row.offer_label || offerLabel(row.offer_code)"></span>
                   </td>
                   <td class="px-4 py-3 text-slate-500 text-xs tabular-nums" x-text="formatDate(row.start_time)"></td>
                   <td class="px-4 py-3 text-slate-500 text-xs tabular-nums" x-text="formatTime(row.start_time)"></td>
@@ -638,8 +637,8 @@
       </div>
 
       <section class="bg-white rounded-md border border-shell-border shadow-sm p-5 mt-4">
-        <h3 class="text-sm font-semibold text-slate-800 mb-1">Fenêtres de pause</h3>
-        <p class="text-xs text-slate-500 mb-3">Hors plage, quota = 0. Liste vide = pauses autorisées 24 h.</p>
+        <h3 class="text-sm font-semibold text-slate-800 mb-1">Fenêtres de pause autorisées</h3>
+        <p class="text-xs text-slate-500 mb-3">Plages pendant lesquelles un départ en pause est possible. Hors plage, quota = 0. Liste vide = autorisé 24 h.</p>
         <div class="space-y-2">
           <template x-for="(w, idx) in pauseWindows" :key="'pw-' + idx">
             <div class="flex items-center gap-2">
@@ -681,15 +680,21 @@
       <div class="bg-white rounded-md border border-shell-border shadow-sm">
         <!-- Gestion des offres -->
         <div class="px-5 py-5">
-          <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center justify-between gap-3 mb-3 flex-wrap">
             <label class="block text-sm font-medium text-slate-700">Gestion des offres</label>
-            <button
-              @click="startCreateOffer"
-              type="button"
-              class="text-xs border border-shell-border bg-white hover:bg-slate-50 rounded-lg px-3 py-1.5 transition"
-            >
-              Nouvelle offre
-            </button>
+            <div class="flex items-center gap-3">
+              <label class="inline-flex items-center gap-2 text-xs text-slate-600 cursor-pointer select-none">
+                <input type="checkbox" x-model="showInactiveOffers" class="rounded border-shell-border">
+                Afficher les désactivées
+              </label>
+              <button
+                @click="startCreateOffer"
+                type="button"
+                class="text-xs border border-shell-border bg-white hover:bg-slate-50 rounded-lg px-3 py-1.5 transition"
+              >
+                Nouvelle offre
+              </button>
+            </div>
           </div>
 
           <!-- Création : panneau déplié sous le titre -->
@@ -705,16 +710,8 @@
               </button>
             </div>
             <form @submit.prevent="saveOffer" class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label class="block text-xs text-slate-500 mb-1">Code</label>
-                <input
-                  type="text"
-                  x-model="offerForm.code"
-                  class="w-full border border-shell-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-slate-400"
-                >
-              </div>
-              <div>
-                <label class="block text-xs text-slate-500 mb-1">Libellé</label>
+              <div class="md:col-span-2">
+                <label class="block text-xs text-slate-500 mb-1">Nom</label>
                 <input
                   type="text"
                   x-model="offerForm.label"
@@ -742,7 +739,7 @@
                   placeholder="20"
                   class="w-full border border-shell-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-slate-400"
                 >
-                <p class="mt-1 text-xs text-slate-400">Vide = repli sur le quota par défaut. Hors override Live.</p>
+                  <p class="mt-1 text-xs text-slate-400">Vide = repli sur le quota par défaut. Hors quota forcé (Temps réel).</p>
               </div>
               <div>
                 <label class="block text-xs text-slate-500 mb-1">Couleur personnalisée</label>
@@ -780,11 +777,10 @@
           </div>
 
           <div class="space-y-2 mb-2">
-            <template x-for="offer in offersAdminRows" :key="offer.code">
+            <template x-for="offer in visibleOffersAdminRows" :key="offer.code">
               <div class="w-full rounded-lg border border-shell-border bg-white overflow-hidden transition">
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-3 py-2.5">
                   <div class="min-w-0">
-                    <div class="text-xs font-mono text-slate-600" x-text="offer.code"></div>
                     <div class="text-sm font-medium text-slate-800 truncate" x-text="offer.label"></div>
                     <div class="mt-1 flex items-center gap-2 flex-wrap">
                       <span class="text-xs rounded-full px-2 py-0.5"
@@ -813,11 +809,11 @@
                     <button
                       type="button"
                       x-show="offer.is_active === true"
-                      @click="deleteOffer(offer)"
+                      @click="deactivateOffer(offer)"
                       :disabled="offerSaving"
-                      class="text-xs rounded-lg px-2 py-1 border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                      class="text-xs rounded-lg px-2 py-1 border border-amber-200 text-amber-800 hover:bg-amber-50 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      Supprimer
+                      Désactiver
                     </button>
                     <button
                       type="button"
@@ -828,6 +824,19 @@
                     >
                       Réactiver
                     </button>
+                    <button
+                      type="button"
+                      @click="purgeOffer(offer)"
+                      :disabled="offerSaving"
+                      title="Supprimer définitivement"
+                      class="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3m-9 0h10"/>
+                      </svg>
+                      <span class="sr-only">Supprimer définitivement</span>
+                    </button>
                   </div>
                 </div>
 
@@ -837,23 +846,14 @@
                   class="border-t border-slate-100 bg-slate-50 px-3 py-3"
                 >
                   <div class="flex items-center justify-between mb-3">
-                    <span class="text-xs font-medium text-slate-700">Modifier <span class="font-mono" x-text="offer.code"></span></span>
+                    <span class="text-xs font-medium text-slate-700">Modifier <span x-text="offer.label"></span></span>
                     <button type="button" @click="cancelOfferPanel" class="text-xs text-slate-500 hover:text-slate-800">
                       Annuler
                     </button>
                   </div>
                   <form @submit.prevent="saveOffer" class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <label class="block text-xs text-slate-500 mb-1">Code</label>
-                      <input
-                        type="text"
-                        x-model="offerForm.code"
-                        disabled
-                        class="w-full border border-shell-border rounded-lg px-3 py-2 text-sm font-mono bg-slate-100 cursor-not-allowed"
-                      >
-                    </div>
-                    <div>
-                      <label class="block text-xs text-slate-500 mb-1">Libellé</label>
+                    <div class="md:col-span-2">
+                      <label class="block text-xs text-slate-500 mb-1">Nom</label>
                       <input
                         type="text"
                         x-model="offerForm.label"
@@ -881,7 +881,7 @@
                         placeholder="20"
                         class="w-full border border-shell-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-slate-400"
                       >
-                      <p class="mt-1 text-xs text-slate-400">Vide = repli sur le quota par défaut. Indépendant de l’override Live.</p>
+                      <p class="mt-1 text-xs text-slate-400">Vide = repli sur le quota par défaut. Indépendant du quota forcé (Temps réel).</p>
                     </div>
                     <div>
                       <label class="block text-xs text-slate-500 mb-1">Couleur personnalisée</label>
@@ -919,8 +919,8 @@
                 </div>
               </div>
             </template>
-            <div x-show="!offersAdminLoading && offersAdminRows.length === 0" class="text-xs text-slate-400">
-              Aucune offre disponible.
+            <div x-show="!offersAdminLoading && visibleOffersAdminRows.length === 0" class="text-xs text-slate-400">
+              Aucune offre à afficher.
             </div>
           </div>
 
@@ -963,7 +963,7 @@
               :disabled="planningImporting"
               class="bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold rounded-md px-4 py-2 transition"
             >
-              <span x-show="planningImporting">Import…</span>
+              <span x-show="planningImporting">Importation…</span>
               <span x-show="!planningImporting">Importer</span>
             </button>
           </form>
@@ -983,7 +983,7 @@
             </div>
             <div class="bg-slate-50 rounded-md px-3 py-2 border border-shell-border"
               :class="(planningImportResult?.unmapped || []).length ? 'border-amber-200 bg-amber-50' : ''">
-              <p class="text-slate-500">Non mappés</p>
+              <p class="text-slate-500">Non classés</p>
               <p class="font-semibold tabular-nums text-slate-800" x-text="(planningImportResult?.unmapped || []).length"></p>
             </div>
           </div>
@@ -1004,7 +1004,7 @@
         <section class="bg-white rounded-md border border-shell-border shadow-sm overflow-hidden">
           <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between gap-3">
             <div>
-              <h3 class="text-sm font-semibold text-slate-800">Mapping des libellés WFM</h3>
+              <h3 class="text-sm font-semibold text-slate-800">Correspondance des libellés WFM</h3>
               <p class="text-xs text-slate-500 mt-0.5">Associer à une offre Flowi ou ignorer. Recalcule la grille sans réimporter.</p>
             </div>
             <button
@@ -1014,7 +1014,7 @@
               class="bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold rounded-md px-4 py-2 transition"
             >
               <span x-show="planningMappingSaving">Enregistrement…</span>
-              <span x-show="!planningMappingSaving">Enregistrer le mapping</span>
+              <span x-show="!planningMappingSaving">Enregistrer la correspondance</span>
             </button>
           </div>
           <p x-show="planningMappingError" x-cloak class="px-5 py-2 text-xs text-red-500" x-text="planningMappingError"></p>
@@ -1048,7 +1048,7 @@
                         <option value="">Non classé</option>
                         <option value="__ignore__">Ignorer</option>
                         <template x-for="offer in mappingOfferOptions" :key="offer.code">
-                          <option :value="offer.code" x-text="offer.code + ' — ' + offer.label"></option>
+                          <option :value="offer.code" x-text="offer.label"></option>
                         </template>
                       </select>
                     </td>
@@ -1109,7 +1109,7 @@
       <div class="bg-white rounded-md border border-shell-border shadow-sm mt-6">
         <div class="px-5 py-4 border-b border-slate-100">
           <h3 class="text-sm font-semibold text-slate-700">Vérification et installation</h3>
-          <p class="text-xs text-slate-500 mt-0.5">Contrôle de version par rapport à GitHub, téléchargement de la release et application sur ce serveur.</p>
+          <p class="text-xs text-slate-500 mt-0.5">Contrôle de version par rapport à GitHub, téléchargement de la version et application sur ce serveur.</p>
         </div>
 
         <!-- Vérification version -->
@@ -1133,7 +1133,7 @@
           </div>
           <div x-show="otaCheckResult?.releaseUrl" x-cloak class="text-xs text-slate-400">
             <a :href="otaCheckResult?.releaseUrl" target="_blank" rel="noopener"
-              class="text-blue-600 hover:underline" x-text="otaCheckResult?.releaseName || 'Voir la release'"></a>
+              class="text-blue-600 hover:underline" x-text="otaCheckResult?.releaseName || 'Voir la version'"></a>
             <span x-show="otaCheckResult?.publishedAt" x-cloak
               x-text="' — Publiée le ' + (otaCheckResult?.publishedAt ? formatTime(otaCheckResult.publishedAt) : '')"></span>
           </div>
@@ -1207,7 +1207,7 @@
               >
             </div>
             <div class="md:col-span-2">
-              <label class="block text-xs text-slate-500 mb-1">Token d’accès (PAT)</label>
+              <label class="block text-xs text-slate-500 mb-1">Jeton d’accès (PAT)</label>
               <input
                 type="password"
                 autocomplete="new-password"
@@ -1215,7 +1215,7 @@
                 :placeholder="githubTokenConfigured ? 'Configuré' : 'Optionnel'"
                 class="w-full border border-shell-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
               >
-              <p class="mt-1 text-xs text-slate-400">Optionnel — pour dépôts privés. Laissez vide pour conserver le token actuel ; utilisez « Supprimer le token » pour l’effacer.</p>
+              <p class="mt-1 text-xs text-slate-400">Optionnel — pour dépôts privés. Laissez vide pour conserver le jeton actuel ; utilisez « Supprimer le jeton » pour l’effacer.</p>
             </div>
           </div>
           <div class="flex flex-wrap items-center gap-3">
@@ -1234,7 +1234,7 @@
               :disabled="githubOtaSaving || !githubTokenConfigured"
               class="text-xs border border-shell-border bg-white hover:bg-slate-50 disabled:opacity-40 rounded-lg px-3 py-2 transition"
             >
-              Supprimer le token
+              Supprimer le jeton
             </button>
           </div>
           <p x-show="githubOtaMsg" x-cloak
@@ -1280,12 +1280,12 @@
         </section>
 
         <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
-          <h3 class="text-sm font-semibold text-slate-800 mb-2">Onglet Live</h3>
+          <h3 class="text-sm font-semibold text-slate-800 mb-2">Onglet Temps réel</h3>
           <p class="text-sm text-slate-600 mb-3">Tableau des pauses <span class="font-medium text-slate-800">en cours</span> : agent, offre, heure de départ, temps écoulé. Le chrono passe orange puis rouge selon la durée.</p>
           <dl class="space-y-3">
             <div>
-              <dt class="text-xs font-semibold text-slate-800">Overrides par offre</dt>
-              <dd class="text-sm text-slate-600">Bande repliable au-dessus du tableau. Repliée, elle indique combien d’offres sont bloquées et combien d’overrides sont actifs. Dépliée : compteur en pause / quota, et champ pour forcer un plafond fixe (vide = off). Le % et l’effectif planifié ne se règlent pas ici.</dd>
+              <dt class="text-xs font-semibold text-slate-800">Quotas forcés par offre</dt>
+              <dd class="text-sm text-slate-600">Bande repliable au-dessus du tableau. Repliée, elle indique combien d’offres sont bloquées et combien de quotas sont forcés. Dépliée : compteur en pause / quota, et champ pour imposer un plafond fixe (vide = désactivé). Le % et l’effectif planifié ne se règlent pas ici.</dd>
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">MODE URGENCE</dt>
@@ -1300,7 +1300,7 @@
 
         <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
           <h3 class="text-sm font-semibold text-slate-800 mb-2">Onglet Grille</h3>
-          <p class="text-sm text-slate-600 mb-3">Consultation des effectifs planifiés (gris) et quotas autorisés (teal) par quart d’heure. Pas de temps réel, pas d’import.</p>
+          <p class="text-sm text-slate-600 mb-3">Consultation des effectifs planifiés (gris) et quotas autorisés (couleur de l’appli) par quart d’heure. Pas de temps réel, pas d’importation.</p>
           <dl class="space-y-3">
             <div>
               <dt class="text-xs font-semibold text-slate-800">Jour / De / À</dt>
@@ -1308,10 +1308,10 @@
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">Règle sous l’offre</dt>
-              <dd class="text-sm text-slate-600">Rappelle comment le quota autorisé est calculé (override, % des planifiés, ou défaut).</dd>
+              <dd class="text-sm text-slate-600">Rappelle comment le quota autorisé est calculé (quota forcé, % des planifiés, ou défaut).</dd>
             </div>
             <div>
-              <dt class="text-xs font-semibold text-slate-800">Raster 15 min</dt>
+              <dt class="text-xs font-semibold text-slate-800">Créneaux de 15 min</dt>
               <dd class="text-sm text-slate-600">Créneaux [T, T+15). Un agent compte s’il y a intersection non vide avec [début, fin). Exemple : 09:00–12:00 occupe 09:00 … 11:45, pas 12:00.</dd>
             </div>
           </dl>
@@ -1319,7 +1319,7 @@
 
         <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
           <h3 class="text-sm font-semibold text-slate-800 mb-2">Pile des quotas</h3>
-          <p class="text-sm text-slate-600 mb-3">Ordre appliqué au départ en pause : <span class="font-medium text-slate-800">hors fenêtre → 0</span> ; sinon <span class="font-medium text-slate-800">override Live</span> s’il est renseigné ; sinon <span class="font-medium text-slate-800">floor(effectif × %)</span> avec un minimum de 1 dès qu’il y a au moins une tête planifiée ; sinon le <span class="font-medium text-slate-800">quota par défaut</span> de l’offre. Jour sans planning = défaut.</p>
+          <p class="text-sm text-slate-600 mb-3">Ordre appliqué au départ en pause : <span class="font-medium text-slate-800">hors fenêtre → 0</span> ; sinon <span class="font-medium text-slate-800">quota forcé</span> (Temps réel) s’il est renseigné ; sinon <span class="font-medium text-slate-800">arrondi inférieur de (effectif × %)</span> avec un minimum de 1 dès qu’il y a au moins une tête planifiée ; sinon le <span class="font-medium text-slate-800">quota par défaut</span> de l’offre. Jour sans planning = défaut.</p>
         </section>
 
         <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
@@ -1343,7 +1343,7 @@
               <dd class="text-sm text-slate-600">
                 <span class="font-medium text-slate-800">Manuel</span> : l’agent a cliqué Retour de pause.
                 <span class="font-medium text-slate-800">Auto (N min)</span> : la durée max (Paramètres) est dépassée, le serveur a renvoyé l’agent.
-                <span class="font-medium text-slate-800">Forcé superviseur</span> : bouton Forcer retour sur Live.
+                <span class="font-medium text-slate-800">Forcé superviseur</span> : bouton Forcer retour sur Temps réel.
               </dd>
             </div>
           </dl>
@@ -1393,23 +1393,23 @@
               <dd class="text-sm text-slate-600">Au-delà, retour automatique (motif Auto dans l’historique).</dd>
             </div>
             <div>
-              <dt class="text-xs font-semibold text-slate-800">Général — Fenêtres de pause</dt>
-              <dd class="text-sm text-slate-600">Liste de plages début–fin. Vide = ouvert 24 h. Sinon, hors plage, aucun nouveau départ (quota 0). Les pauses déjà commencées ne sont pas coupées.</dd>
+              <dt class="text-xs font-semibold text-slate-800">Général — Fenêtres de pause autorisées</dt>
+              <dd class="text-sm text-slate-600">Liste de plages début–fin pendant lesquelles un départ en pause est possible. Vide = ouvert 24 h. Sinon, hors plage, aucun nouveau départ (quota 0). Les pauses déjà commencées ne sont pas coupées.</dd>
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">Offres — % autorisé</dt>
-              <dd class="text-sm text-slate-600">Part de l’effectif planifié qui peut être en pause. Vide = quota par défaut de l’offre. Indépendant de l’override Live. Si la création de l’offre réussit mais pas l’enregistrement du %, un bouton « Réessayer le % » rejoue uniquement cette étape.</dd>
+              <dd class="text-sm text-slate-600">Part de l’effectif planifié qui peut être en pause. Vide = quota par défaut de l’offre. Indépendant du quota forcé (Temps réel). Si la création de l’offre réussit mais pas l’enregistrement du %, un bouton « Réessayer le % » rejoue uniquement cette étape.</dd>
             </div>
             <div>
-              <dt class="text-xs font-semibold text-slate-800">Offres — Nouvelle / Modifier / Supprimer / Réactiver</dt>
-              <dd class="text-sm text-slate-600">Une offre = une équipe (code, libellé, quota par défaut, %, couleur). Supprimer la rend inactive sans couper les pauses en cours.</dd>
+              <dt class="text-xs font-semibold text-slate-800">Offres — Nouvelle / Modifier / Désactiver / Supprimer</dt>
+              <dd class="text-sm text-slate-600">Une offre = une équipe (nom, quota par défaut, %, couleur). <span class="font-medium text-slate-800">Désactiver</span> la range : plus de nouveaux départs, pauses en cours intactes, réactivation possible (liste masquée, interrupteur « Afficher les désactivées »). <span class="font-medium text-slate-800">Supprimer définitivement</span> la fait disparaître de l’appli. Si des pauses sont en cours, la suppression est refusée. S’il reste de l’historique, le nom continue d’apparaître dans l’historique jusqu’à la purge automatique ; sinon la suppression est immédiate.</dd>
             </div>
             <div>
-              <dt class="text-xs font-semibold text-slate-800">Planning — Import</dt>
-              <dd class="text-sm text-slate-600">Rapport Genesys WFM Planning individuel (CSV Windows). Les lignes résumé (heures payées) sont ignorées. Un réimport remplace les jours du fichier. Les identifiants agents ne sont pas stockés. Après import, « Voir la grille » ouvre l’onglet Grille sur le premier jour du fichier.</dd>
+              <dt class="text-xs font-semibold text-slate-800">Planning — Importation</dt>
+              <dd class="text-sm text-slate-600">Rapport Genesys WFM Planning individuel (CSV Windows). Les lignes résumé (heures payées) sont ignorées. Une nouvelle importation remplace les jours du fichier. Les identifiants agents ne sont pas stockés. Après l’importation, « Voir la grille » ouvre l’onglet Grille sur le premier jour du fichier.</dd>
             </div>
             <div>
-              <dt class="text-xs font-semibold text-slate-800">Planning — Mapping</dt>
+              <dt class="text-xs font-semibold text-slate-800">Planning — Correspondance</dt>
               <dd class="text-sm text-slate-600">Plusieurs libellés WFM peuvent viser la même offre. « Ignorer » écarte le libellé. Enregistrer recalcule la grille sans renvoyer le CSV.</dd>
             </div>
             <div>
@@ -1578,7 +1578,7 @@ function supervisorApp() {
     liveOverridesOpen: false,
     _supervisorTabRoutingBound: false,
     tabs: [
-      { id: 'live',      label: 'Live' },
+      { id: 'live',      label: 'Temps réel' },
       { id: 'history',   label: 'Historique' },
       { id: 'grid',      label: 'Grille' },
       { id: 'directory', label: 'Annuaire' },
@@ -1614,7 +1614,7 @@ function supervisorApp() {
     planningGridTo: loadStoredPlanningHours().to,
     planningGridHoursError: '',
     pauseWindows: [],
-    pauseWindowDraft: { start: '10:00', end: '11:00' },
+    pauseWindowDraft: { start: '', end: '' },
     pauseWindowsSaving: false,
     pauseWindowsError: '',
     pauseWindowsMsg: '',
@@ -1641,7 +1641,7 @@ function supervisorApp() {
     histSort:       { key: 'start_time', dir: 'desc' },
     histCols: [
       { key: 'agent_name',  label: 'Agent' },
-      { key: 'offer_code',  label: 'Offre' },
+      { key: 'offer_label',  label: 'Offre' },
       { key: 'start_date',  label: 'Date' },
       { key: 'start_time',  label: 'Heure début' },
       { key: 'end_time',    label: 'Heure fin' },
@@ -1666,6 +1666,7 @@ function supervisorApp() {
 
     // ── Offres (admin) ────────────────────────────
     offersAdminRows: [],
+    showInactiveOffers: false,
     offersAdminLoading: false,
     offerForm: {
       mode: 'create',
@@ -1706,6 +1707,12 @@ function supervisorApp() {
     get mappingOfferOptions() {
       if (this.histOffers.length) return this.histOffers;
       return this.quotas.map((q) => q.offer).filter(Boolean);
+    },
+
+    get visibleOffersAdminRows() {
+      const rows = this.offersAdminRows || [];
+      if (this.showInactiveOffers) return rows;
+      return rows.filter((o) => o.is_active === true);
     },
 
     get planningGridRows() {
@@ -1908,7 +1915,7 @@ function supervisorApp() {
     liveOverrideSummary() {
       const blocked = this.quotas.filter((q) => q.blocked).length;
       const overrides = this.quotas.filter((q) => this.hasQuotaOverride(q)).length;
-      return `${blocked} offres bloquées / ${overrides} overrides actifs`;
+      return `${blocked} offres bloquées / ${overrides} quotas forcés`;
     },
 
     async loadQuotas() {
@@ -2001,7 +2008,7 @@ function supervisorApp() {
     // ── Planning ─────────────────────────────────
     mappingStatusLabel(row) {
       if (row.offerCode === '__ignore__') return 'Ignoré';
-      if (row.offerCode) return 'Mappé';
+      if (row.offerCode) return 'Associé';
       return 'Non classé';
     },
 
@@ -2029,7 +2036,7 @@ function supervisorApp() {
 
     planningQuotaRule(row) {
       if (row.fixedQuota != null) {
-        return `Override ${row.fixedQuota} — écrase le calcul de la grille`;
+        return `Quota forcé ${row.fixedQuota} — écrase le calcul de la grille`;
       }
       if (row.allowedPercent != null) {
         return `${row.allowedPercent} % des planifiés (min. 1 si effectif > 0)`;
@@ -2169,7 +2176,7 @@ function supervisorApp() {
         });
         const data = await res.json();
         if (!res.ok) {
-          this.planningImportError = data.error?.message || 'Import refusé.';
+          this.planningImportError = data.error?.message || 'Importation refusée.';
           return;
         }
         this.planningImportResult = data;
@@ -2216,7 +2223,7 @@ function supervisorApp() {
           return;
         }
         this.mergePlanningMappings(data.mappings || [], this.planningImportResult?.unmapped || []);
-        this.planningMappingMsg = 'Mapping enregistré, grille recalculée.';
+        this.planningMappingMsg = 'Correspondance enregistrée, grille recalculée.';
         await Promise.all([this.loadPlanningSlots(), this.loadQuotas()]);
         setTimeout(() => { this.planningMappingMsg = ''; }, 4000);
       } catch {
@@ -2228,8 +2235,14 @@ function supervisorApp() {
 
     addPauseWindow() {
       this.pauseWindowsError = '';
-      const start = parseHmClient(this.pauseWindowDraft.start);
-      const end = parseHmClient(this.pauseWindowDraft.end);
+      const startRaw = String(this.pauseWindowDraft.start || '').trim();
+      const endRaw = String(this.pauseWindowDraft.end || '').trim();
+      if (!startRaw || !endRaw) {
+        this.pauseWindowsError = 'Saisissez un début et une fin.';
+        return;
+      }
+      const start = parseHmClient(startRaw);
+      const end = parseHmClient(endRaw);
       if (start == null || end == null) {
         this.pauseWindowsError = 'Horaires HH:MM invalides.';
         return;
@@ -2241,6 +2254,7 @@ function supervisorApp() {
       const startLabel = formatSlotMinutes(start);
       const endLabel = formatSlotMinutes(end);
       this.pauseWindows = [...this.pauseWindows, { start: startLabel, end: endLabel }];
+      this.pauseWindowDraft = { start: '', end: '' };
     },
 
     removePauseWindow(idx) {
@@ -2286,6 +2300,7 @@ function supervisorApp() {
             prenom: p.prenom,
             agentName: `${p.prenom} ${p.nom}`,
             offerCode: entry.offer.code,
+            offerLabel: entry.offer.label,
             startTime: p.start_time,
             _forcing:  false,
           });
@@ -2313,6 +2328,17 @@ function supervisorApp() {
       }
       const idx = this.hashOfferId(offerId) % pastelColors.length;
       return pastelColors[idx];
+    },
+
+    offerLabel(code) {
+      if (!code) return 'Offre';
+      const quota = this.quotas.find((q) => q.offer?.code === code);
+      if (quota?.offer?.label) return quota.offer.label;
+      const admin = this.offersAdminRows.find((o) => o.code === code);
+      if (admin?.label) return admin.label;
+      const hist = this.histOffers.find((o) => o.code === code);
+      if (hist?.label) return hist.label;
+      return 'Offre';
     },
 
     resolveOfferColorByCode(offerCode) {
@@ -2741,20 +2767,14 @@ function supervisorApp() {
       this.offerError = '';
       this.offerMsg = '';
 
-      const code = (this.offerForm.code || '').trim();
       const label = (this.offerForm.label || '').trim();
       const defaultQuota = parseInt(this.offerForm.default_quota, 10);
       const color = this.offerForm.useDefaultColor
         ? null
         : this._normalizeHexColor(this.offerForm.color);
 
-      if (!code) {
-        this.offerError = 'Le code offre est requis.';
-        this.offerSaving = false;
-        return;
-      }
       if (!label) {
-        this.offerError = 'Le libellé est requis.';
+        this.offerError = 'Le nom de l’offre est requis.';
         this.offerSaving = false;
         return;
       }
@@ -2789,7 +2809,7 @@ function supervisorApp() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify({ code, ...payload }),
+            body: JSON.stringify(payload),
           });
         } else {
           res = await fetch(`/api/supervisor/offers/${encodeURIComponent(this.offerForm.originalCode)}`, {
@@ -2807,7 +2827,11 @@ function supervisorApp() {
         }
 
         const created = this.offerForm.mode === 'create';
-        const offerCode = created ? code : this.offerForm.originalCode;
+        const offerCode = created ? data.offer?.code : this.offerForm.originalCode;
+        if (!offerCode) {
+          this.offerError = "Impossible d'enregistrer l'offre.";
+          return;
+        }
         const shouldPutPercent = parsedPct.value !== null || !created;
         if (shouldPutPercent) {
           const pct = await this.putOfferAllowedPercent(offerCode, parsedPct.value);
@@ -2838,10 +2862,11 @@ function supervisorApp() {
       }
     },
 
-    async deleteOffer(offer) {
+    async deactivateOffer(offer) {
       if (!offer || offer.is_active !== true) return;
       if (this.offerSaving) return;
-      const confirmed = window.confirm(`Désactiver l'offre ${offer.code} ? Les pauses en cours ne seront pas interrompues.`);
+      const name = offer.label || 'cette offre';
+      const confirmed = window.confirm(`Désactiver « ${name} » ? Les pauses en cours ne seront pas interrompues.`);
       if (!confirmed) return;
 
       this.offerSaving = true;
@@ -2849,8 +2874,10 @@ function supervisorApp() {
       this.offerMsg = '';
       try {
         const res = await fetch(`/api/supervisor/offers/${encodeURIComponent(offer.code)}`, {
-          method: 'DELETE',
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
+          body: JSON.stringify({ is_active: false }),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -2858,7 +2885,7 @@ function supervisorApp() {
           return;
         }
         this.offerMsgOk = true;
-        this.offerMsg = data.message || 'Offre désactivée.';
+        this.offerMsg = 'Offre désactivée.';
         if (this.expandedOfferCode === offer.code) this.expandedOfferCode = null;
         await Promise.all([this.loadOffersAdmin(), this.loadQuotas()]);
       } catch {
@@ -2871,16 +2898,19 @@ function supervisorApp() {
     async reactivateOffer(offer) {
       if (!offer || offer.is_active !== false) return;
       if (this.offerSaving) return;
-      const confirmed = window.confirm(`Voulez-vous réactiver l'offre ${offer.code} ?`);
+      const name = offer.label || 'cette offre';
+      const confirmed = window.confirm(`Réactiver « ${name} » ?`);
       if (!confirmed) return;
 
       this.offerSaving = true;
       this.offerError = '';
       this.offerMsg = '';
       try {
-        const res = await fetch(`/api/supervisor/offers/${encodeURIComponent(offer.code)}/activate`, {
-          method: 'PATCH',
+        const res = await fetch(`/api/supervisor/offers/${encodeURIComponent(offer.code)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
+          body: JSON.stringify({ is_active: true }),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -2888,7 +2918,40 @@ function supervisorApp() {
           return;
         }
         this.offerMsgOk = true;
-        this.offerMsg = data.message || 'Offre réactivée.';
+        this.offerMsg = 'Offre réactivée.';
+        await Promise.all([this.loadOffersAdmin(), this.loadQuotas()]);
+      } catch {
+        this.offerError = 'Erreur réseau.';
+      } finally {
+        this.offerSaving = false;
+      }
+    },
+
+    async purgeOffer(offer) {
+      if (!offer) return;
+      if (this.offerSaving) return;
+      const name = offer.label || 'cette offre';
+      const confirmed = window.confirm(
+        `Supprimer définitivement « ${name} » ? Si l’historique contient encore des pauses, l’offre disparaîtra de l’appli et sera effacée plus tard.`
+      );
+      if (!confirmed) return;
+
+      this.offerSaving = true;
+      this.offerError = '';
+      this.offerMsg = '';
+      try {
+        const res = await fetch(`/api/supervisor/offers/${encodeURIComponent(offer.code)}`, {
+          method: 'DELETE',
+          credentials: 'include',
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          this.offerError = data.error?.message || "Impossible de supprimer l'offre.";
+          return;
+        }
+        this.offerMsgOk = true;
+        this.offerMsg = data.message || 'Offre supprimée.';
+        if (this.expandedOfferCode === offer.code) this.expandedOfferCode = null;
         await Promise.all([this.loadOffersAdmin(), this.loadQuotas()]);
       } catch {
         this.offerError = 'Erreur réseau.';
@@ -3032,7 +3095,7 @@ function supervisorApp() {
         const data = await res.json().catch(() => ({}));
         if (res.ok) {
           this.githubOtaMsgOk = true;
-          this.githubOtaMsg   = 'Token supprimé.';
+          this.githubOtaMsg   = 'Jeton supprimé.';
           await this.loadSettings();
         } else {
           this.githubOtaMsgOk = false;
@@ -3223,6 +3286,7 @@ function supervisorApp() {
             prenom: evt.prenom,
             agentName: evt.agentName,
             offerCode: evt.offerCode,
+            offerLabel: evt.offerLabel || this.offerLabel(evt.offerCode),
             startTime: evt.startTime,
             _forcing:  false,
           });

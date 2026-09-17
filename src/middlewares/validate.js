@@ -11,8 +11,15 @@
  * }
  */
 
+const crypto = require('crypto');
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const OFFER_CODE_RE = /^[A-Z0-9_-]{1,32}$/;
+
+/** Code interne invisible (hex majuscules, 12 caractères). */
+function newOfferCode() {
+  return crypto.randomBytes(6).toString('hex').toUpperCase();
+}
 
 /** Construit une réponse d'erreur standardisée. */
 function apiError(res, status, code, message, fields = undefined) {
@@ -84,4 +91,4 @@ function sanitizeName(v) {
   return typeof v === 'string' ? v.trim().slice(0, 100) : '';
 }
 
-module.exports = { apiError, Errors, isValidUuid, isValidOfferCode, isPositiveInt, isPercent, sanitizeName };
+module.exports = { apiError, Errors, isValidUuid, isValidOfferCode, newOfferCode, isPositiveInt, isPercent, sanitizeName };

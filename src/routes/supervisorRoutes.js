@@ -1,9 +1,11 @@
 const express = require('express');
+const multer  = require('multer');
 const router  = express.Router();
 const db      = require('../db');
 const { createSession, validatePin, requireSupervisor } = require('../middlewares/supervisorAuth');
-const { effectiveQuota, countActivePauses, emitOfferUpdate, emitQuotasUpdate } = require('./agentRoutes');
-const { Errors, apiError, isValidOfferCode, isPositiveInt, isPercent } = require('../middlewares/validate');
+const { effectiveQuota, countActivePauses, emitOfferUpdate, emitQuotasUpdate, allowedFromHeadcount } = require('./agentRoutes');
+const { Errors, apiError, isValidOfferCode, newOfferCode, isPositiveInt, isPercent } = require('../middlewares/validate');
+const { importGenesysBuffer, GenesysImportError, canonicalWfmLabel } = require('../services/genesysPlanningImport');
 
 function nowIso() { return new Date().toISOString(); }
 
@@ -29,6 +31,16 @@ function parseOfferColorInput(rawColor) {
     return { error: 'color doit respecter le format #rrggbb' };
   }
   return normalized;
+}
+
+const OFFER_COLUMNS =
+  'id, code, label, default_quota, color, is_active, purge_requested_at, created_at';
+
+async function hardDeleteOffer(client, offerId) {
+  await client.query('DELETE FROM quota_rules WHERE offer_id = $1', [offerId]);
+  await client.query('UPDATE wfm_activity_mappings SET offer_id = NULL WHERE offer_id = $1', [offerId]);
+  await client.query('DELETE FROM planning_slots WHERE offer_id = $1', [offerId]);
+  await client.query('DELETE FROM offers WHERE id = $1', [offerId]);
 }
 
 // ---------- Authentification ----------
@@ -74,11 +86,12 @@ router.post('/logout', requireSupervisor, (req, res) => {
 
 /**
  * GET /api/supervisor/offers
+ * Exclut les offres en file de suppression définitive.
  */
 router.get('/offers', requireSupervisor, async (req, res) => {
   try {
     const offers = await db.queryAll(
-      'SELECT id, code, label, default_quota, color, is_active, created_at FROM offers ORDER BY code ASC'
+      `SELECT ${OFFER_COLUMNS} FROM offers WHERE purge_requested_at IS NULL ORDER BY code ASC`
     );
     res.json({ offers });
   } catch (err) {
@@ -88,20 +101,15 @@ router.get('/offers', requireSupervisor, async (req, res) => {
 
 /**
  * POST /api/supervisor/offers
- * Body: { code, label, default_quota?, color? }
+ * Body: { label, default_quota?, color? } — le code client est ignoré.
  */
 router.post('/offers', requireSupervisor, async (req, res) => {
   try {
-    const code = typeof req.body.code === 'string' ? req.body.code.trim() : '';
     const label = typeof req.body.label === 'string' ? req.body.label.trim() : '';
     const defaultQuotaRaw = req.body.default_quota;
     const defaultQuota = defaultQuotaRaw === undefined ? 2 : parseInt(defaultQuotaRaw, 10);
     const parsedColor = parseOfferColorInput(req.body.color);
-    if (!code) return Errors.missingField(res, 'code');
     if (!label) return Errors.missingField(res, 'label');
-    if (!isValidOfferCode(code)) {
-      return Errors.invalidType(res, 'code', 'code offre alphanumérique (ex: OFFRE_A)');
-    }
     if (!Number.isInteger(defaultQuota) || defaultQuota < 0) {
       return Errors.invalidType(res, 'default_quota', 'entier >= 0');
     }
@@ -110,24 +118,30 @@ router.post('/offers', requireSupervisor, async (req, res) => {
     }
 
     const now = nowIso();
-    try {
-      const offer = await db.queryOne(
-        'INSERT INTO offers (code, label, default_quota, color, is_active, created_at) ' +
-        'VALUES ($1, $2, $3, $4, true, $5) ' +
-        'RETURNING id, code, label, default_quota, color, is_active, created_at',
-        [code, label, defaultQuota, parsedColor, now]
-      );
-
-      const io = req.app.get('io');
-      if (io) await emitQuotasUpdate(io);
-
-      return res.status(201).json({ offer });
-    } catch (err) {
-      if (err.code === '23505') {
-        return Errors.conflict(res, `Offre "${code}" déjà existante`);
+    const maxAttempts = 3;
+    let offer = null;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const code = newOfferCode();
+      try {
+        offer = await db.queryOne(
+          'INSERT INTO offers (code, label, default_quota, color, is_active, created_at) ' +
+          `VALUES ($1, $2, $3, $4, true, $5) RETURNING ${OFFER_COLUMNS}`,
+          [code, label, defaultQuota, parsedColor, now]
+        );
+        break;
+      } catch (err) {
+        if (err.code === '23505' && attempt < maxAttempts - 1) continue;
+        if (err.code === '23505') {
+          return Errors.conflict(res, 'Impossible d’attribuer un code interne unique');
+        }
+        throw err;
       }
-      throw err;
     }
+
+    const io = req.app.get('io');
+    if (io) await emitQuotasUpdate(io);
+
+    return res.status(201).json({ offer });
   } catch (err) {
     Errors.internal(res, err);
   }
@@ -135,7 +149,7 @@ router.post('/offers', requireSupervisor, async (req, res) => {
 
 /**
  * PUT /api/supervisor/offers/:offerCode
- * Body: { label?, default_quota?, color? }
+ * Body: { label?, default_quota?, color?, is_active? }
  */
 router.put('/offers/:offerCode', requireSupervisor, async (req, res) => {
   try {
@@ -143,14 +157,20 @@ router.put('/offers/:offerCode', requireSupervisor, async (req, res) => {
     if (!isValidOfferCode(offerCode)) {
       return Errors.invalidType(res, 'offerCode', 'code offre alphanumérique (ex: OFFRE_A)');
     }
-    const existing = await db.queryOne('SELECT id FROM offers WHERE code = $1', [offerCode]);
-    if (!existing) return Errors.notFound(res, `Offre "${offerCode}"`);
+    const existing = await db.queryOne(
+      `SELECT ${OFFER_COLUMNS} FROM offers WHERE code = $1`,
+      [offerCode]
+    );
+    if (!existing || existing.purge_requested_at) {
+      return Errors.notFound(res, `Offre "${offerCode}"`);
+    }
 
     const hasLabel = req.body.label !== undefined;
     const hasDefaultQuota = req.body.default_quota !== undefined;
     const hasColor = req.body.color !== undefined;
-    if (!hasLabel && !hasDefaultQuota && !hasColor) {
-      return Errors.missingField(res, 'label | default_quota | color');
+    const hasActive = req.body.is_active !== undefined;
+    if (!hasLabel && !hasDefaultQuota && !hasColor && !hasActive) {
+      return Errors.missingField(res, 'label | default_quota | color | is_active');
     }
 
     const nextLabel = hasLabel ? (typeof req.body.label === 'string' ? req.body.label.trim() : '') : null;
@@ -173,22 +193,32 @@ router.put('/offers/:offerCode', requireSupervisor, async (req, res) => {
       nextColor = parsedColor;
     }
 
+    let nextActive = null;
+    if (hasActive) {
+      if (typeof req.body.is_active !== 'boolean') {
+        return Errors.invalidType(res, 'is_active', 'booléen');
+      }
+      nextActive = req.body.is_active;
+    }
+
     await db.query(
       'UPDATE offers SET ' +
       'label = CASE WHEN $1 THEN $2 ELSE label END, ' +
       'default_quota = CASE WHEN $3 THEN $4 ELSE default_quota END, ' +
-      'color = CASE WHEN $5 THEN $6 ELSE color END ' +
-      'WHERE code = $7',
+      'color = CASE WHEN $5 THEN $6 ELSE color END, ' +
+      'is_active = CASE WHEN $7 THEN $8 ELSE is_active END ' +
+      'WHERE code = $9',
       [
         hasLabel, hasLabel ? nextLabel : null,
         hasDefaultQuota, hasDefaultQuota ? nextDefaultQuota : null,
         hasColor, hasColor ? nextColor : null,
+        hasActive, hasActive ? nextActive : null,
         offerCode,
       ]
     );
 
     const offer = await db.queryOne(
-      'SELECT id, code, label, default_quota, color, is_active, created_at FROM offers WHERE code = $1',
+      `SELECT ${OFFER_COLUMNS} FROM offers WHERE code = $1`,
       [offerCode]
     );
 
@@ -203,7 +233,7 @@ router.put('/offers/:offerCode', requireSupervisor, async (req, res) => {
 
 /**
  * DELETE /api/supervisor/offers/:offerCode
- * Suppression logique: bascule l'offre en inactif.
+ * Suppression définitive : SQL immédiat si aucune pause, sinon file d'attente.
  */
 router.delete('/offers/:offerCode', requireSupervisor, async (req, res) => {
   try {
@@ -213,24 +243,54 @@ router.delete('/offers/:offerCode', requireSupervisor, async (req, res) => {
     }
 
     const existing = await db.queryOne(
-      'SELECT id, code, label, default_quota, color, is_active, created_at FROM offers WHERE code = $1',
+      `SELECT ${OFFER_COLUMNS} FROM offers WHERE code = $1`,
       [offerCode]
     );
-    if (!existing) return Errors.notFound(res, `Offre "${offerCode}"`);
-    if (!existing.is_active) {
-      return res.json({ offer: existing, changed: false, message: 'Offre déjà désactivée.' });
+    if (!existing || existing.purge_requested_at) {
+      return Errors.notFound(res, `Offre "${offerCode}"`);
     }
 
-    await db.query('UPDATE offers SET is_active = false WHERE code = $1', [offerCode]);
+    const inProgress = await db.queryOne(
+      "SELECT COUNT(*) AS cnt FROM pauses WHERE offer_id = $1 AND status = 'in_progress'",
+      [existing.id]
+    );
+    if (Number(inProgress.cnt) > 0) {
+      return Errors.conflict(res, 'Impossible de supprimer : des agents sont encore en pause sur cette offre.');
+    }
+
+    const remaining = await db.queryOne(
+      'SELECT COUNT(*) AS cnt FROM pauses WHERE offer_id = $1',
+      [existing.id]
+    );
+    const historyCount = Number(remaining.cnt);
+
+    if (historyCount === 0) {
+      await db.withTransaction(async (client) => {
+        await hardDeleteOffer(client, existing.id);
+      });
+
+      const io = req.app.get('io');
+      if (io) await emitQuotasUpdate(io);
+
+      return res.json({ deleted: true, offer: null, message: 'Offre supprimée.' });
+    }
+
     const offer = await db.queryOne(
-      'SELECT id, code, label, default_quota, color, is_active, created_at FROM offers WHERE code = $1',
-      [offerCode]
+      `UPDATE offers SET is_active = false, purge_requested_at = $2
+       WHERE id = $1
+       RETURNING ${OFFER_COLUMNS}`,
+      [existing.id, nowIso()]
     );
 
     const io = req.app.get('io');
     if (io) await emitQuotasUpdate(io);
 
-    res.json({ offer, changed: true, message: 'Offre désactivée.' });
+    res.json({
+      deleted: false,
+      queued: true,
+      offer,
+      message: 'Offre retirée. Suppression définitive après disparition de l’historique.',
+    });
   } catch (err) {
     Errors.internal(res, err);
   }
@@ -238,7 +298,7 @@ router.delete('/offers/:offerCode', requireSupervisor, async (req, res) => {
 
 /**
  * PATCH /api/supervisor/offers/:offerCode/activate
- * Réactivation logique: is_active = true (+ diffusion quotas pour les agents).
+ * Alias de PUT { is_active: true }.
  */
 router.patch('/offers/:offerCode/activate', requireSupervisor, async (req, res) => {
   try {
@@ -248,17 +308,19 @@ router.patch('/offers/:offerCode/activate', requireSupervisor, async (req, res) 
     }
 
     const existing = await db.queryOne(
-      'SELECT id, code, label, default_quota, color, is_active, created_at FROM offers WHERE code = $1',
+      `SELECT ${OFFER_COLUMNS} FROM offers WHERE code = $1`,
       [offerCode]
     );
-    if (!existing) return Errors.notFound(res, `Offre "${offerCode}"`);
+    if (!existing || existing.purge_requested_at) {
+      return Errors.notFound(res, `Offre "${offerCode}"`);
+    }
     if (existing.is_active) {
       return res.json({ offer: existing, changed: false, message: 'Offre déjà active.' });
     }
 
     await db.query('UPDATE offers SET is_active = true WHERE code = $1', [offerCode]);
     const offer = await db.queryOne(
-      'SELECT id, code, label, default_quota, color, is_active, created_at FROM offers WHERE code = $1',
+      `SELECT ${OFFER_COLUMNS} FROM offers WHERE code = $1`,
       [offerCode]
     );
 
@@ -399,7 +461,9 @@ router.delete('/agents/:matricule', requireSupervisor, (req, res) =>
  */
 router.get('/quotas', requireSupervisor, async (req, res) => {
   try {
-    const offers = await db.queryAll('SELECT * FROM offers ORDER BY code');
+    const offers = await db.queryAll(
+      'SELECT * FROM offers WHERE purge_requested_at IS NULL ORDER BY code'
+    );
     const data = [];
     for (const offer of offers) {
       const rule   = await db.queryOne('SELECT * FROM quota_rules WHERE offer_id = $1', [offer.id]) || {};
@@ -427,44 +491,32 @@ router.get('/quotas', requireSupervisor, async (req, res) => {
 
 /**
  * PUT /api/supervisor/quotas/:offerCode
- * Body: { fixedQuota?, presentCount?, allowedPercent? }
- *
- * Règles de validation:
- *   - Au moins un champ de quota fourni.
- *   - fixedQuota: entier >= 0 ou null (efface le quota fixe).
- *   - presentCount: entier >= 0.
- *   - allowedPercent: float [0, 100].
- *   - Si presentCount fourni, allowedPercent doit l'être aussi (et vice-versa).
+ * Body: { fixedQuota?, allowedPercent? }
  */
 router.put('/quotas/:offerCode', requireSupervisor, async (req, res) => {
   try {
     const { offerCode } = req.params;
     if (!isValidOfferCode(offerCode)) return Errors.notFound(res, `Offre "${offerCode}"`);
 
-    const offer = await db.queryOne('SELECT * FROM offers WHERE code = $1', [offerCode]);
+    const offer = await db.queryOne(
+      'SELECT * FROM offers WHERE code = $1 AND purge_requested_at IS NULL',
+      [offerCode]
+    );
     if (!offer) return Errors.notFound(res, `Offre "${offerCode}"`);
 
-    const { fixedQuota, presentCount, allowedPercent } = req.body;
+    const { fixedQuota, allowedPercent } = req.body;
     const hasFixed   = fixedQuota     !== undefined;
-    const hasCount   = presentCount   !== undefined;
     const hasPercent = allowedPercent !== undefined;
 
-    if (!hasFixed && !hasCount && !hasPercent) {
-      return Errors.missingField(res, 'fixedQuota | presentCount | allowedPercent');
+    if (!hasFixed && !hasPercent) {
+      return Errors.missingField(res, 'fixedQuota | allowedPercent');
     }
 
     if (hasFixed && fixedQuota !== null && !isPositiveInt(fixedQuota)) {
       return Errors.invalidType(res, 'fixedQuota', 'entier >= 0 ou null');
     }
-    if (hasCount && !isPositiveInt(presentCount)) {
-      return Errors.invalidType(res, 'presentCount', 'entier >= 0');
-    }
-    if (hasPercent && !isPercent(allowedPercent)) {
-      return Errors.invalidType(res, 'allowedPercent', 'nombre entre 0 et 100');
-    }
-    if ((hasCount && !hasPercent) || (!hasCount && hasPercent)) {
-      return Errors.invalidType(res, 'presentCount+allowedPercent',
-        'doivent être fournis ensemble pour le calcul par pourcentage');
+    if (hasPercent && allowedPercent !== null && !isPercent(allowedPercent)) {
+      return Errors.invalidType(res, 'allowedPercent', 'nombre entre 0 et 100 ou null');
     }
 
     const now      = nowIso();
@@ -474,23 +526,20 @@ router.put('/quotas/:offerCode', requireSupervisor, async (req, res) => {
       await db.query(
         'UPDATE quota_rules SET ' +
         'fixed_quota     = CASE WHEN $1 THEN $2 ELSE fixed_quota END, ' +
-        'present_count   = CASE WHEN $3 THEN $4 ELSE present_count END, ' +
-        'allowed_percent = CASE WHEN $5 THEN $6 ELSE allowed_percent END, ' +
-        'updated_at = $7 WHERE offer_id = $8',
+        'allowed_percent = CASE WHEN $3 THEN $4 ELSE allowed_percent END, ' +
+        'updated_at = $5 WHERE offer_id = $6',
         [
           hasFixed, hasFixed ? fixedQuota : null,
-          hasCount, hasCount ? presentCount : null,
           hasPercent, hasPercent ? allowedPercent : null,
           now, offer.id,
         ]
       );
     } else {
       await db.query(
-        'INSERT INTO quota_rules (offer_id, fixed_quota, present_count, allowed_percent, updated_at) VALUES ($1, $2, $3, $4, $5)',
+        'INSERT INTO quota_rules (offer_id, fixed_quota, present_count, allowed_percent, updated_at) VALUES ($1, $2, NULL, $3, $4)',
         [
           offer.id,
           hasFixed   ? fixedQuota     : null,
-          hasCount   ? presentCount   : null,
           hasPercent ? allowedPercent : null,
           now,
         ]
@@ -510,6 +559,229 @@ router.put('/quotas/:offerCode', requireSupervisor, async (req, res) => {
     }
 
     res.json({ offerCode, effectiveQuota: quota, currentPaused: active, blocked: active >= quota });
+  } catch (err) {
+    Errors.internal(res, err);
+  }
+});
+
+const uploadPlanning = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+}).single('file');
+
+function parseHmSetting(raw) {
+  const m = String(raw || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return null;
+  return { hhmm: `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`, minutes: h * 60 + min };
+}
+
+/**
+ * GET /api/supervisor/planning/mapping
+ * Union des libellés déjà mappés et de ceux vus dans planning_activities.
+ */
+router.get('/planning/mapping', requireSupervisor, async (req, res) => {
+  try {
+    const offers = await db.queryAll(
+      'SELECT id, code FROM offers WHERE purge_requested_at IS NULL'
+    );
+    const codeById = new Map(offers.map((o) => [o.id, o.code]));
+
+    const mapped = await db.queryAll(
+      'SELECT label, offer_id FROM wfm_activity_mappings ORDER BY label'
+    );
+    const activityLabels = await db.queryAll(
+      'SELECT DISTINCT wfm_label AS label FROM planning_activities ORDER BY 1'
+    );
+
+    const byLabel = new Map();
+    const remember = (rawLabel, offerId, fromMapping) => {
+      const label = canonicalWfmLabel(rawLabel);
+      if (!label) return;
+      const existing = byLabel.get(label);
+      const nextOfferId = offerId == null ? null : offerId;
+      if (!existing) {
+        byLabel.set(label, {
+          label,
+          offerId: nextOfferId,
+          offerCode: nextOfferId == null ? null : (codeById.get(nextOfferId) ?? null),
+          ignored: fromMapping && nextOfferId == null,
+          unmapped: nextOfferId == null,
+        });
+        return;
+      }
+      if (existing.offerId == null && nextOfferId != null) {
+        existing.offerId = nextOfferId;
+        existing.offerCode = codeById.get(nextOfferId) ?? null;
+        existing.ignored = false;
+        existing.unmapped = false;
+      } else if (fromMapping && existing.offerId == null && nextOfferId == null) {
+        existing.ignored = true;
+        existing.unmapped = true;
+      }
+    };
+    for (const row of mapped) remember(row.label, row.offer_id, true);
+    for (const row of activityLabels) remember(row.label, null, false);
+
+    const mappings = [...byLabel.values()].sort((a, b) =>
+      a.label.localeCompare(b.label, 'fr')
+    );
+    res.json({ mappings });
+  } catch (err) {
+    Errors.internal(res, err);
+  }
+});
+
+/**
+ * POST /api/supervisor/planning/import
+ * multipart field: file
+ */
+router.post('/planning/import', requireSupervisor, (req, res, next) => {
+  uploadPlanning(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return apiError(res, 400, 'FILE_TOO_LARGE', 'Fichier trop volumineux (max 5 Mo)');
+    }
+    return Errors.invalidType(res, 'file', 'fichier CSV');
+  });
+}, async (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer) return Errors.missingField(res, 'file');
+    const result = await importGenesysBuffer(req.file.buffer);
+    const io = req.app.get('io');
+    if (io) await emitQuotasUpdate(io);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof GenesysImportError || err.code === 'FORMAT') {
+      return apiError(res, 400, err.code || 'FORMAT', err.message);
+    }
+    Errors.internal(res, err);
+  }
+});
+
+/**
+ * PUT /api/supervisor/planning/mapping
+ * Body: { mappings: [{ label, offerCode|null }] }
+ */
+router.put('/planning/mapping', requireSupervisor, async (req, res) => {
+  try {
+    const mappings = req.body && req.body.mappings;
+    if (!Array.isArray(mappings)) {
+      return Errors.invalidType(res, 'mappings', 'tableau { label, offerCode }');
+    }
+
+    const offers = await db.queryAll(
+      'SELECT id, code FROM offers WHERE purge_requested_at IS NULL'
+    );
+    const offerByCode = new Map(offers.map((o) => [o.code, o.id]));
+
+    const byCanon = new Map();
+    for (const item of mappings) {
+      const raw = typeof item?.label === 'string' ? item.label : '';
+      const label = canonicalWfmLabel(raw);
+      if (!label) return Errors.invalidType(res, 'mappings.label', 'chaîne non vide');
+      const rawCode = item.offerCode;
+      if (rawCode !== undefined && rawCode !== null && rawCode !== '') {
+        if (typeof rawCode !== 'string' || !offerByCode.has(rawCode)) {
+          return Errors.notFound(res, `Offre "${rawCode}"`);
+        }
+        byCanon.set(label, { label, offerId: offerByCode.get(rawCode) });
+      } else {
+        byCanon.set(label, { label, offerId: null });
+      }
+    }
+    const normalized = [...byCanon.values()];
+
+    await db.withTransaction(async (client) => {
+      for (const row of normalized) {
+        await client.query(
+          `DELETE FROM wfm_activity_mappings
+           WHERE label <> $1
+             AND TRIM(BOTH FROM REGEXP_REPLACE(REGEXP_REPLACE(label, '\\s*\\([^)]*\\)', ' ', 'g'), '\\s+', ' ', 'g')) = $1`,
+          [row.label]
+        );
+        await client.query(
+          `INSERT INTO wfm_activity_mappings (label, offer_id) VALUES ($1, $2)
+           ON CONFLICT (label) DO UPDATE SET offer_id = EXCLUDED.offer_id`,
+          [row.label, row.offerId]
+        );
+      }
+      await db.rebuildPlanningSlots(client);
+    });
+
+    const io = req.app.get('io');
+    if (io) await emitQuotasUpdate(io);
+
+    const saved = await db.queryAll(
+      'SELECT label, offer_id FROM wfm_activity_mappings ORDER BY label'
+    );
+    const collapsed = new Map();
+    for (const r of saved) {
+      const label = canonicalWfmLabel(r.label) || r.label;
+      collapsed.set(label, {
+        label,
+        offerId: r.offer_id,
+        offerCode: offers.find((o) => o.id === r.offer_id)?.code ?? null,
+      });
+    }
+    res.json({ mappings: [...collapsed.values()] });
+  } catch (err) {
+    Errors.internal(res, err);
+  }
+});
+
+/**
+ * GET /api/supervisor/planning/slots?day=YYYY-MM-DD
+ */
+router.get('/planning/slots', requireSupervisor, async (req, res) => {
+  try {
+    const day = typeof req.query.day === 'string' ? req.query.day.trim() : '';
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+      return Errors.invalidType(res, 'day', 'YYYY-MM-DD');
+    }
+
+    const rows = await db.queryAll(
+      `SELECT o.id, o.code, o.label, o.default_quota, o.color,
+              qr.allowed_percent, qr.fixed_quota,
+              ps.slot_minutes, ps.headcount
+       FROM offers o
+       LEFT JOIN quota_rules qr ON qr.offer_id = o.id
+       LEFT JOIN planning_slots ps ON ps.offer_id = o.id AND ps.day = $1::date
+       WHERE o.purge_requested_at IS NULL
+       ORDER BY o.code, ps.slot_minutes`,
+      [day]
+    );
+
+    const byOffer = new Map();
+    for (const row of rows) {
+      if (!byOffer.has(row.id)) {
+        byOffer.set(row.id, {
+          offerId: row.id,
+          offerCode: row.code,
+          label: row.label,
+          color: row.color,
+          defaultQuota: row.default_quota,
+          allowedPercent: row.allowed_percent == null ? null : Number(row.allowed_percent),
+          fixedQuota: row.fixed_quota == null ? null : Number(row.fixed_quota),
+          slots: [],
+        });
+      }
+      if (row.slot_minutes == null) continue;
+      const percent = row.allowed_percent == null ? null : Number(row.allowed_percent);
+      const headcount = Number(row.headcount);
+      const allowed = percent == null
+        ? Number(row.default_quota)
+        : allowedFromHeadcount(headcount, percent);
+      byOffer.get(row.id).slots.push({
+        slotMinutes: Number(row.slot_minutes),
+        headcount,
+        allowed,
+      });
+    }
+
+    res.json({ day, offers: [...byOffer.values()] });
   } catch (err) {
     Errors.internal(res, err);
   }
@@ -817,6 +1089,42 @@ router.put('/settings/max-pause-minutes', requireSupervisor, async (req, res) =>
     if (io) io.emit('system:settings-updated', { maxPauseMinutes: minutes });
 
     res.json({ maxPauseMinutes: minutes });
+  } catch (err) {
+    Errors.internal(res, err);
+  }
+});
+
+/**
+ * PUT /api/supervisor/settings/pause-windows
+ * Body: { windows: [{ start: "HH:MM", end: "HH:MM" }] }
+ * Tableau vide = pauses autorisées 24h.
+ */
+router.put('/settings/pause-windows', requireSupervisor, async (req, res) => {
+  try {
+    const windows = req.body && req.body.windows;
+    if (!Array.isArray(windows)) {
+      return Errors.invalidType(res, 'windows', 'tableau { start, end }');
+    }
+
+    const normalized = [];
+    for (const w of windows) {
+      const start = parseHmSetting(w && w.start);
+      const end = parseHmSetting(w && w.end);
+      if (!start || !end) {
+        return Errors.invalidType(res, 'windows', 'plages HH:MM valides');
+      }
+      if (!(start.minutes < end.minutes)) {
+        return Errors.invalidType(res, 'windows', 'début strictement avant fin');
+      }
+      normalized.push({ start: start.hhmm, end: end.hhmm });
+    }
+
+    await db.query(UPSERT_SETTING, ['pause_windows', JSON.stringify(normalized)]);
+
+    const io = req.app.get('io');
+    if (io) await emitQuotasUpdate(io);
+
+    res.json({ windows: normalized });
   } catch (err) {
     Errors.internal(res, err);
   }

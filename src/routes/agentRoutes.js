@@ -29,15 +29,85 @@ async function qAll(sql, params, client) {
   return db.queryAll(sql, params);
 }
 
+function getParisClock(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Paris',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const g = (type) => parts.find((p) => p.type === type).value;
+  const hour = Number(g('hour'));
+  const minute = Number(g('minute'));
+  return {
+    day: `${g('year')}-${g('month')}-${g('day')}`,
+    hour,
+    minute,
+    minutesOfDay: hour * 60 + minute,
+    slotMinutes: hour * 60 + Math.floor(minute / 15) * 15,
+  };
+}
+
+function hmToMinutes(raw) {
+  const m = String(raw || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+function parsePauseWindows(raw) {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function isInsidePauseWindows(minutesOfDay, windows) {
+  if (!windows.length) return true;
+  return windows.some((w) => {
+    const start = hmToMinutes(w && w.start);
+    const end = hmToMinutes(w && w.end);
+    if (start == null || end == null) return false;
+    return minutesOfDay >= start && minutesOfDay < end;
+  });
+}
+
+/** floor(headcount × %) ; minimum 1 dès qu’il y a au moins une tête planifiée. */
+function allowedFromHeadcount(headcount, percent) {
+  const n = Number(headcount);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  const p = Number(percent);
+  if (!Number.isFinite(p) || p < 0) return 0;
+  return Math.max(1, Math.floor((n * p) / 100));
+}
+
 /**
- * Calcule le quota effectif d'une offre selon la hiérarchie:
- *   1. fixed_quota (si non NULL)
- *   2. floor(present_count * allowed_percent / 100)
- *   3. offers.default_quota
+ * Quota effectif:
+ *   1. hors fenêtres de pause (si configurées) → 0
+ *   2. fixed_quota (override) si NOT NULL
+ *   3. slot planning du jour : max(1, floor(headcount × %)) si headcount > 0 ; 0 si headcount = 0 ; default_quota si % NULL
+ *   4. offers.default_quota
  */
 async function effectiveQuota(offerId, client) {
+  const clock = getParisClock();
+  const windowsRow = await qOne(
+    "SELECT value FROM app_settings WHERE key = 'pause_windows'",
+    [],
+    client
+  );
+  const windows = parsePauseWindows(windowsRow && windowsRow.value);
+  if (!isInsidePauseWindows(clock.minutesOfDay, windows)) return 0;
+
   const rule = await qOne(
-    'SELECT qr.fixed_quota, qr.present_count, qr.allowed_percent, o.default_quota ' +
+    'SELECT qr.fixed_quota, qr.allowed_percent, o.default_quota ' +
     'FROM offers o ' +
     'LEFT JOIN quota_rules qr ON qr.offer_id = o.id ' +
     'WHERE o.id = $1',
@@ -46,11 +116,25 @@ async function effectiveQuota(offerId, client) {
   );
 
   if (!rule) return 0;
-  if (rule.fixed_quota !== null && rule.fixed_quota !== undefined) return rule.fixed_quota;
-  if (rule.present_count !== null && rule.allowed_percent !== null) {
-    return Math.max(0, Math.floor((rule.present_count * rule.allowed_percent) / 100));
+  if (rule.fixed_quota !== null && rule.fixed_quota !== undefined) {
+    return Number(rule.fixed_quota);
   }
-  return rule.default_quota;
+
+  const slot = await qOne(
+    'SELECT headcount FROM planning_slots ' +
+    'WHERE offer_id = $1 AND day = $2::date AND slot_minutes = $3',
+    [offerId, clock.day, clock.slotMinutes],
+    client
+  );
+
+  if (slot) {
+    if (rule.allowed_percent === null || rule.allowed_percent === undefined) {
+      return Number(rule.default_quota);
+    }
+    return allowedFromHeadcount(slot.headcount, rule.allowed_percent);
+  }
+
+  return Number(rule.default_quota);
 }
 
 async function countActivePauses(offerId, client) {
@@ -73,8 +157,9 @@ function sanitizeText(v, max = 100) {
 async function visibleOffersForAgent() {
   return db.queryAll(
     'SELECT o.* FROM offers o ' +
-    'WHERE o.is_active = true ' +
-    "OR EXISTS (SELECT 1 FROM pauses p WHERE p.offer_id = o.id AND (p.status = 'in_progress' OR p.end_time IS NULL)) " +
+    'WHERE o.purge_requested_at IS NULL ' +
+    'AND (o.is_active = true ' +
+    "OR EXISTS (SELECT 1 FROM pauses p WHERE p.offer_id = o.id AND (p.status = 'in_progress' OR p.end_time IS NULL))) " +
     'ORDER BY o.code'
   );
 }
@@ -262,7 +347,7 @@ router.post('/pause/start', async (req, res) => {
     if (!isValidOfferCode(offerCode)) return Errors.invalidType(res, 'offerCode', 'code offre alphanumérique (ex: OFFRE_A)');
 
     const offer = await offerByCode(offerCode);
-    if (!offer) return Errors.notFound(res, `Offre "${offerCode}"`);
+    if (!offer || offer.purge_requested_at) return Errors.notFound(res, `Offre "${offerCode}"`);
     if (!offer.is_active) return Errors.conflict(res, `Offre "${offerCode}" désactivée`);
 
     const agent = await db.queryOne(
@@ -400,4 +485,6 @@ module.exports = {
   buildQuotasSnapshot,
   emitOfferUpdate,
   emitQuotasUpdate,
+  getParisClock,
+  allowedFromHeadcount,
 };
