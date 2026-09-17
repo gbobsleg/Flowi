@@ -1,10 +1,10 @@
 /**
  * Amorçage idempotent des données applicatives (paramètres, offres, quotas, agents de test).
- * Exécuter après le premier démarrage / migration (001_initial_schema.sql).
+ * Exécuter après les migrations (001_initial_schema.sql). Idempotent.
  */
 require('dotenv').config();
 
-const db = require('../src/db/sqlite');
+const db = require('../src/db');
 
 const now = new Date().toISOString();
 
@@ -27,68 +27,93 @@ const OFFERS = [
 ];
 
 const AGENTS = [
-  ['MAT001', 'DUPONT', 'Alice', 1],
-  ['MAT002', 'MARTIN', 'Bilal', 1],
-  ['MAT003', 'NGUYEN', 'Chloe', 1],
-  ['MAT100', 'LEROY', 'Amine', 1],
-  ['MAT101', 'ROUX', 'Nora', 1],
-  ['MAT102', 'GIRARD', 'Yanis', 1],
-  ['MAT103', 'FAURE', 'Ines', 1],
-  ['MAT104', 'MOREAU', 'Sofiane', 1],
-  ['MAT105', 'SIMON', 'Lina', 1],
-  ['MAT106', 'LAURENT', 'Mehdi', 1],
-  ['MAT107', 'LEFEBVRE', 'Camille', 1],
-  ['MAT108', 'MICHEL', 'Rayan', 1],
-  ['MAT109', 'GARCIA', 'Sarah', 1],
-  ['MAT110', 'DAVID', 'Ilyes', 1],
-  ['MAT111', 'BERNARD', 'Maya', 1],
-  ['MAT112', 'THOMAS', 'Noah', 1],
-  ['MAT113', 'ROBERT', 'Jade', 1],
-  ['MAT114', 'PETIT', 'Nassim', 1],
-  ['MAT115', 'RICHARD', 'Lea', 1],
-  ['MAT116', 'DURAND', 'Imran', 1],
-  ['MAT117', 'DUBOIS', 'Aya', 1],
-  ['MAT118', 'MOREL', 'Loris', 1],
-  ['MAT119', 'FONTAINE', 'Nina', 1],
-  ['MAT120', 'MERCIER', 'Anis', 1],
-  ['MAT121', 'BONNET', 'Elsa', 1],
-  ['MAT122', 'FRANCOIS', 'Mael', 1],
-  ['MAT123', 'MULLER', 'Yasmine', 1],
-  ['MAT124', 'MARTINEZ', 'Adam', 1],
-  ['MAT125', 'LECLERC', 'Sana', 1],
-  ['MAT126', 'LOPEZ', 'Ibrahim', 1],
-  ['MAT127', 'CARON', 'Salome', 1],
-  ['MAT128', 'GARNIER', 'Malo', 1],
-  ['MAT129', 'BOYER', 'Sofia', 1],
+  ['MAT001', 'DUPONT', 'Alice', true],
+  ['MAT002', 'MARTIN', 'Bilal', true],
+  ['MAT003', 'NGUYEN', 'Chloe', true],
+  ['MAT100', 'LEROY', 'Amine', true],
+  ['MAT101', 'ROUX', 'Nora', true],
+  ['MAT102', 'GIRARD', 'Yanis', true],
+  ['MAT103', 'FAURE', 'Ines', true],
+  ['MAT104', 'MOREAU', 'Sofiane', true],
+  ['MAT105', 'SIMON', 'Lina', true],
+  ['MAT106', 'LAURENT', 'Mehdi', true],
+  ['MAT107', 'LEFEBVRE', 'Camille', true],
+  ['MAT108', 'MICHEL', 'Rayan', true],
+  ['MAT109', 'GARCIA', 'Sarah', true],
+  ['MAT110', 'DAVID', 'Ilyes', true],
+  ['MAT111', 'BERNARD', 'Maya', true],
+  ['MAT112', 'THOMAS', 'Noah', true],
+  ['MAT113', 'ROBERT', 'Jade', true],
+  ['MAT114', 'PETIT', 'Nassim', true],
+  ['MAT115', 'RICHARD', 'Lea', true],
+  ['MAT116', 'DURAND', 'Imran', true],
+  ['MAT117', 'DUBOIS', 'Aya', true],
+  ['MAT118', 'MOREL', 'Loris', true],
+  ['MAT119', 'FONTAINE', 'Nina', true],
+  ['MAT120', 'MERCIER', 'Anis', true],
+  ['MAT121', 'BONNET', 'Elsa', true],
+  ['MAT122', 'FRANCOIS', 'Mael', true],
+  ['MAT123', 'MULLER', 'Yasmine', true],
+  ['MAT124', 'MARTINEZ', 'Adam', true],
+  ['MAT125', 'LECLERC', 'Sana', true],
+  ['MAT126', 'LOPEZ', 'Ibrahim', true],
+  ['MAT127', 'CARON', 'Salome', true],
+  ['MAT128', 'GARNIER', 'Malo', true],
+  ['MAT129', 'BOYER', 'Sofia', true],
 ];
 
-function run() {
-  const insertSetting = db.prepare(
-    'INSERT OR IGNORE INTO app_settings (key, value) VALUES (?, ?)'
-  );
-  const insertOffer = db.prepare(
-    `INSERT OR IGNORE INTO offers (code, label, default_quota, color, is_active, created_at)
-     VALUES (?, ?, ?, NULL, 1, ?)`
-  );
-  const insertQuota = db.prepare(`
-    INSERT OR IGNORE INTO quota_rules (offer_id, fixed_quota, present_count, allowed_percent, updated_at)
-    SELECT o.id, o.default_quota, NULL, NULL, ?
-    FROM offers o
-    WHERE o.code = ?
-  `);
-  const insertAgent = db.prepare(
-    'INSERT OR IGNORE INTO agents (matricule, nom, prenom, is_active) VALUES (?, ?, ?, ?)'
-  );
+async function run() {
+  try {
+    await db.init();
+    await db.withTransaction(async (client) => {
+      for (const [k, v] of APP_SETTINGS) {
+        await client.query(
+          'INSERT INTO app_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING',
+          [k, v]
+        );
+      }
 
-  const tx = db.transaction(() => {
-    for (const [k, v] of APP_SETTINGS) insertSetting.run(k, v);
-    for (const [code, label, dq] of OFFERS) insertOffer.run(code, label, dq, now);
-    for (const [code] of OFFERS) insertQuota.run(now, code);
-    for (const row of AGENTS) insertAgent.run(...row);
-  });
+      for (const [code, label, dq] of OFFERS) {
+        await client.query(
+          `INSERT INTO offers (code, label, default_quota, color, is_active, created_at)
+           VALUES ($1, $2, $3, NULL, true, $4)
+           ON CONFLICT (code) DO NOTHING`,
+          [code, label, dq, now]
+        );
+      }
 
-  tx();
-  console.log('Seed terminé : app_settings, offers, quota_rules, agents (idempotent).');
+      for (const [code] of OFFERS) {
+        await client.query(
+          `INSERT INTO quota_rules (offer_id, fixed_quota, present_count, allowed_percent, updated_at)
+           SELECT o.id, o.default_quota, NULL, NULL, $1
+           FROM offers o
+           WHERE o.code = $2
+           ON CONFLICT (offer_id) DO NOTHING`,
+          [now, code]
+        );
+      }
+
+      for (const [matricule, nom, prenom, isActive] of AGENTS) {
+        await client.query(
+          `INSERT INTO agents (matricule, nom, prenom, is_active)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (matricule) DO NOTHING`,
+          [matricule, nom, prenom, isActive]
+        );
+      }
+    });
+
+    console.log('Seed terminé : app_settings, offers, quota_rules, agents (idempotent).');
+  } finally {
+    try {
+      await db.getPool().end();
+    } catch (_) {
+      // pool jamais ouvert (échec avant init)
+    }
+  }
 }
 
-run();
+run().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

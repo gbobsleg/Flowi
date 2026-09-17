@@ -6,8 +6,8 @@ const { Server }   = require('socket.io');
 const path         = require('path');
 
 const config      = require('./config');
-const db          = require('./db/sqlite');
-const { router: agentRouter, effectiveQuota, countActivePauses, buildSnapshot, emitOfferUpdate, emitQuotasUpdate } = require('./routes/agentRoutes');
+const db          = require('./db');
+const { router: agentRouter, buildSnapshot, emitOfferUpdate, emitQuotasUpdate } = require('./routes/agentRoutes');
 const supervisorRouter = require('./routes/supervisorRoutes');
 const systemRouter     = require('./routes/systemRoutes');
 
@@ -15,7 +15,6 @@ const app    = express();
 const server = http.createServer(app);
 const io     = new Server(server, {
   cors: { origin: '*' },
-  // Désactiver l'événement 'connect_error' côté serveur pour les clients non authentifiés
   connectionStateRecovery: {},
 });
 
@@ -59,7 +58,6 @@ app.set('sessionRegistry', {
   hasActiveSession,
 });
 
-// io accessible dans les routes via req.app.get('io')
 app.set('io', io);
 
 // ---------- Middlewares Express ----------
@@ -74,12 +72,10 @@ app.use('/api/supervisor/system', systemRouter);
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
 
-// Gestionnaire 404 pour les routes API inconnues
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Endpoint inconnu' } });
 });
 
-// Gestionnaire d'erreurs Express global (capture les erreurs non interceptées)
 // eslint-disable-next-line no-unused-vars
 app.use((err, _req, res, _next) => {
   console.error('[Unhandled Express Error]', err);
@@ -91,15 +87,16 @@ io.on('connection', socket => {
   const clientId = socket.id;
   console.log(`[socket] Connexion: ${clientId}`);
 
-  // Envoyer le snapshot complet à ce client uniquement
-  socket.emit('state:snapshot', buildSnapshot());
+  (async () => {
+    try {
+      socket.emit('state:snapshot', await buildSnapshot());
+      const mRow = await db.queryOne("SELECT value FROM app_settings WHERE key = 'maintenance_mode'");
+      socket.emit('system:maintenance-mode', { active: mRow ? mRow.value === '1' : false });
+    } catch (err) {
+      console.error('[socket] initialisation', err);
+    }
+  })();
 
-  // Envoyer l'état maintenance au nouveau client
-  const mRow = db.prepare("SELECT value FROM app_settings WHERE key = 'maintenance_mode'").get();
-  socket.emit('system:maintenance-mode', { active: mRow ? mRow.value === '1' : false });
-
-  // Rejoindre la room de l'offre demandée
-  // Le client envoie { offerCode } pour s'abonner aux événements de son offre
   socket.on('join:offer', ({ offerCode } = {}) => {
     if (typeof offerCode === 'string' && offerCode.trim()) {
       const roomName = `offer:${offerCode.trim().toUpperCase()}`;
@@ -108,13 +105,11 @@ io.on('connection', socket => {
     }
   });
 
-  // Rejoindre la room superviseur (lecture seule côté Socket)
   socket.on('join:supervisor', () => {
     socket.join('supervisor');
     console.log(`[socket] ${clientId} a rejoint la room superviseur`);
   });
 
-  // Identifier l'agent pour unicité de session
   socket.on('agent:identify', ({ agent_matricule, device_id } = {}) => {
     const matricule = typeof agent_matricule === 'string' ? agent_matricule.trim() : '';
     const deviceId = typeof device_id === 'string' ? device_id.trim() : '';
@@ -145,7 +140,6 @@ io.on('connection', socket => {
         return;
       }
 
-      // Même device_id (ex: F5) : écrasement silencieux, sans expulsion.
       if (socketToMatricule.get(existingSocketId) === matricule) {
         socketToMatricule.delete(existingSocketId);
       }
@@ -180,37 +174,42 @@ const SCHEDULER_INTERVAL_MS = 8000;
 
 function nowIso() { return new Date().toISOString(); }
 
-function getMaxMs() {
-  const row = db.prepare("SELECT value FROM app_settings WHERE key = 'max_pause_minutes'").get();
+async function getMaxMs() {
+  const row = await db.queryOne("SELECT value FROM app_settings WHERE key = 'max_pause_minutes'");
   const minutes = row ? parseInt(row.value, 10) : config.MAX_PAUSE_MINUTES;
   return (Number.isFinite(minutes) && minutes > 0 ? minutes : config.MAX_PAUSE_MINUTES) * 60 * 1000;
 }
 
-setInterval(() => {
-  const cutoff = new Date(Date.now() - getMaxMs()).toISOString();
+let autoCloseRunning = false;
 
-  const expired = db.prepare(
+async function closeExpiredPauses() {
+  const maxMs = await getMaxMs();
+  const cutoff = new Date(Date.now() - maxMs).toISOString();
+
+  const expired = await db.queryAll(
     'SELECT p.*, o.code AS offer_code, o.id AS offer_id_val, a.nom AS agent_nom, a.prenom AS agent_prenom ' +
     'FROM pauses p ' +
     'JOIN offers o ON o.id = p.offer_id ' +
     'JOIN agents a ON a.matricule = p.agent_matricule ' +
-    "WHERE p.status = 'in_progress' AND p.start_time <= ?"
-  ).all(cutoff);
+    "WHERE p.status = 'in_progress' AND p.start_time <= $1",
+    [cutoff]
+  );
 
   if (expired.length === 0) return;
 
   const now = nowIso();
-  const currentMaxMinutes = Math.round(getMaxMs() / 60000);
+  const currentMaxMinutes = Math.round(maxMs / 60000);
 
-  const closeStmt = db.prepare(
-    "UPDATE pauses SET status = 'ended', end_time = ?, end_reason = 'auto_15m', " +
-    'duration_seconds = CAST((julianday(?) - julianday(start_time)) * 86400 AS INTEGER), ' +
-    'max_minutes_at_end = ?, updated_at = ? WHERE id = ?'
-  );
-
-  db.transaction(pauses => {
-    for (const p of pauses) closeStmt.run(now, now, currentMaxMinutes, now, p.id);
-  })(expired);
+  await db.withTransaction(async (client) => {
+    for (const p of expired) {
+      await client.query(
+        "UPDATE pauses SET status = 'ended', end_time = $1, end_reason = 'auto_15m', " +
+        'duration_seconds = EXTRACT(EPOCH FROM ($1::timestamptz - start_time))::integer, ' +
+        'max_minutes_at_end = $2, updated_at = $1 WHERE id = $3',
+        [now, currentMaxMinutes, p.id]
+      );
+    }
+  });
 
   for (const p of expired) {
     const duration = Math.round((new Date(now) - new Date(p.start_time)) / 1000);
@@ -227,34 +226,51 @@ setInterval(() => {
       endReason:       'auto_15m',
     };
 
-    // Cibler la room de l'offre + broadcast global
     io.to(`offer:${p.offer_code}`).emit('pause:stopped', stoppedPayload);
     io.emit('pause:stopped', stoppedPayload);
 
-    emitOfferUpdate(io, p.offer_code, p.offer_id_val);
-    emitQuotasUpdate(io);
+    await emitOfferUpdate(io, p.offer_code, p.offer_id_val);
+    await emitQuotasUpdate(io);
   }
-}, SCHEDULER_INTERVAL_MS);
+}
 
-// ---------- Scheduler : purge historique ----------
-function purgeHistory() {
-  const row  = db.prepare("SELECT value FROM app_settings WHERE key = 'history_retention_days'").get();
+async function purgeHistory() {
+  const row  = await db.queryOne("SELECT value FROM app_settings WHERE key = 'history_retention_days'");
   const days = row ? parseInt(row.value, 10) : config.HISTORY_RETENTION_DAYS;
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
-  const { changes } = db.prepare(
-    "DELETE FROM pauses WHERE status = 'ended' AND end_time < ?"
-  ).run(cutoff);
+  const result = await db.query(
+    "DELETE FROM pauses WHERE status = 'ended' AND end_time < $1",
+    [cutoff]
+  );
 
-  if (changes > 0) console.log(`[purge] ${changes} pause(s) supprimée(s) (rétention: ${days} j)`);
+  if (result.rowCount > 0) console.log(`[purge] ${result.rowCount} pause(s) supprimée(s) (rétention: ${days} j)`);
 }
 
-setTimeout(() => {
-  purgeHistory();
-  setInterval(purgeHistory, 24 * 60 * 60 * 1000);
-}, 10 * 60 * 1000);
+async function start() {
+  await db.init();
 
-// ---------- Démarrage ----------
-server.listen(config.PORT, () => {
-  console.log(`[server] App pauses démarrée sur http://localhost:${config.PORT}`);
+  setInterval(() => {
+    if (autoCloseRunning) return;
+    autoCloseRunning = true;
+    closeExpiredPauses()
+      .catch(err => console.error('[scheduler] auto-close', err))
+      .finally(() => { autoCloseRunning = false; });
+  }, SCHEDULER_INTERVAL_MS);
+
+  setTimeout(() => {
+    purgeHistory().catch(err => console.error('[scheduler] purge', err));
+    setInterval(() => {
+      purgeHistory().catch(err => console.error('[scheduler] purge', err));
+    }, 24 * 60 * 60 * 1000);
+  }, 10 * 60 * 1000);
+
+  server.listen(config.PORT, () => {
+    console.log(`[server] App pauses démarrée sur http://localhost:${config.PORT}`);
+  });
+}
+
+start().catch(err => {
+  console.error('[server] Échec de démarrage', err);
+  process.exit(1);
 });

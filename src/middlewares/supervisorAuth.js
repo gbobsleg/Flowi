@@ -1,5 +1,5 @@
 const config = require('../config');
-const db = require('../db/sqlite');
+const db = require('../db');
 
 // Token de session en mémoire (Map uuid -> expiry timestamp)
 const sessions = new Map();
@@ -15,8 +15,8 @@ function createSession() {
 }
 
 /** PIN stocké en base si présent et non vide ; sinon repli sur SUPERVISOR_PIN (.env). */
-function getEffectiveSupervisorPin() {
-  const row = db.prepare("SELECT value FROM app_settings WHERE key = 'supervisor_pin'").get();
+async function getEffectiveSupervisorPin() {
+  const row = await db.queryOne("SELECT value FROM app_settings WHERE key = 'supervisor_pin'");
   if (row && typeof row.value === 'string') {
     const v = row.value.trim();
     if (v !== '') return v;
@@ -24,8 +24,8 @@ function getEffectiveSupervisorPin() {
   return config.SUPERVISOR_PIN;
 }
 
-function validatePin(pin) {
-  return pin === getEffectiveSupervisorPin();
+async function validatePin(pin) {
+  return pin === await getEffectiveSupervisorPin();
 }
 
 function validateToken(token) {

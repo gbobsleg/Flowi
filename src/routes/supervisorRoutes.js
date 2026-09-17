@@ -1,6 +1,6 @@
 const express = require('express');
 const router  = express.Router();
-const db      = require('../db/sqlite');
+const db      = require('../db');
 const { createSession, validatePin, requireSupervisor } = require('../middlewares/supervisorAuth');
 const { effectiveQuota, countActivePauses, emitOfferUpdate, emitQuotasUpdate } = require('./agentRoutes');
 const { Errors, apiError, isValidOfferCode, isPositiveInt, isPercent } = require('../middlewares/validate');
@@ -8,6 +8,10 @@ const { Errors, apiError, isValidOfferCode, isPositiveInt, isPercent } = require
 function nowIso() { return new Date().toISOString(); }
 
 const SUPERVISOR_PIN_RE = /^\d{4,6}$/;
+
+const UPSERT_SETTING =
+  'INSERT INTO app_settings (key, value) VALUES ($1, $2) ' +
+  'ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value';
 
 /** Normalise propriétaire / nom de dépôt (bords + espaces internes). */
 function normalizeGithubOwnerRepo(raw) {
@@ -33,13 +37,13 @@ function parseOfferColorInput(rawColor) {
  * POST /api/supervisor/auth
  * Body: { pin }
  */
-router.post('/auth', (req, res) => {
+router.post('/auth', async (req, res) => {
   try {
     const { pin } = req.body;
     if (!pin)               return Errors.missingField(res, 'pin');
     if (typeof pin !== 'string') return Errors.invalidType(res, 'pin', 'string');
 
-    if (!validatePin(pin.trim())) return Errors.unauthorized(res);
+    if (!(await validatePin(pin.trim()))) return Errors.unauthorized(res);
 
     const token = createSession();
     res.cookie('sv_token', token, { httpOnly: true, sameSite: 'strict', maxAge: 8 * 60 * 60 * 1000 });
@@ -71,11 +75,11 @@ router.post('/logout', requireSupervisor, (req, res) => {
 /**
  * GET /api/supervisor/offers
  */
-router.get('/offers', requireSupervisor, (req, res) => {
+router.get('/offers', requireSupervisor, async (req, res) => {
   try {
-    const offers = db.prepare(
+    const offers = await db.queryAll(
       'SELECT id, code, label, default_quota, color, is_active, created_at FROM offers ORDER BY code ASC'
-    ).all();
+    );
     res.json({ offers });
   } catch (err) {
     Errors.internal(res, err);
@@ -86,7 +90,7 @@ router.get('/offers', requireSupervisor, (req, res) => {
  * POST /api/supervisor/offers
  * Body: { code, label, default_quota?, color? }
  */
-router.post('/offers', requireSupervisor, (req, res) => {
+router.post('/offers', requireSupervisor, async (req, res) => {
   try {
     const code = typeof req.body.code === 'string' ? req.body.code.trim() : '';
     const label = typeof req.body.label === 'string' ? req.body.label.trim() : '';
@@ -107,19 +111,19 @@ router.post('/offers', requireSupervisor, (req, res) => {
 
     const now = nowIso();
     try {
-      const info = db.prepare(
-        'INSERT INTO offers (code, label, default_quota, color, is_active, created_at) VALUES (?, ?, ?, ?, 1, ?)'
-      ).run(code, label, defaultQuota, parsedColor, now);
-      const offer = db.prepare(
-        'SELECT id, code, label, default_quota, color, is_active, created_at FROM offers WHERE id = ?'
-      ).get(info.lastInsertRowid);
+      const offer = await db.queryOne(
+        'INSERT INTO offers (code, label, default_quota, color, is_active, created_at) ' +
+        'VALUES ($1, $2, $3, $4, true, $5) ' +
+        'RETURNING id, code, label, default_quota, color, is_active, created_at',
+        [code, label, defaultQuota, parsedColor, now]
+      );
 
       const io = req.app.get('io');
-      if (io) emitQuotasUpdate(io);
+      if (io) await emitQuotasUpdate(io);
 
       return res.status(201).json({ offer });
     } catch (err) {
-      if (String(err.message || '').includes('UNIQUE constraint failed')) {
+      if (err.code === '23505') {
         return Errors.conflict(res, `Offre "${code}" déjà existante`);
       }
       throw err;
@@ -133,13 +137,13 @@ router.post('/offers', requireSupervisor, (req, res) => {
  * PUT /api/supervisor/offers/:offerCode
  * Body: { label?, default_quota?, color? }
  */
-router.put('/offers/:offerCode', requireSupervisor, (req, res) => {
+router.put('/offers/:offerCode', requireSupervisor, async (req, res) => {
   try {
     const offerCode = typeof req.params.offerCode === 'string' ? req.params.offerCode.trim() : '';
     if (!isValidOfferCode(offerCode)) {
       return Errors.invalidType(res, 'offerCode', 'code offre alphanumérique (ex: OFFRE_A)');
     }
-    const existing = db.prepare('SELECT id FROM offers WHERE code = ?').get(offerCode);
+    const existing = await db.queryOne('SELECT id FROM offers WHERE code = $1', [offerCode]);
     if (!existing) return Errors.notFound(res, `Offre "${offerCode}"`);
 
     const hasLabel = req.body.label !== undefined;
@@ -169,25 +173,27 @@ router.put('/offers/:offerCode', requireSupervisor, (req, res) => {
       nextColor = parsedColor;
     }
 
-    db.prepare(
+    await db.query(
       'UPDATE offers SET ' +
-      'label = CASE WHEN ? = 1 THEN ? ELSE label END, ' +
-      'default_quota = CASE WHEN ? = 1 THEN ? ELSE default_quota END, ' +
-      'color = CASE WHEN ? = 1 THEN ? ELSE color END ' +
-      'WHERE code = ?'
-    ).run(
-      hasLabel ? 1 : 0, hasLabel ? nextLabel : null,
-      hasDefaultQuota ? 1 : 0, hasDefaultQuota ? nextDefaultQuota : null,
-      hasColor ? 1 : 0, hasColor ? nextColor : null,
-      offerCode
+      'label = CASE WHEN $1 THEN $2 ELSE label END, ' +
+      'default_quota = CASE WHEN $3 THEN $4 ELSE default_quota END, ' +
+      'color = CASE WHEN $5 THEN $6 ELSE color END ' +
+      'WHERE code = $7',
+      [
+        hasLabel, hasLabel ? nextLabel : null,
+        hasDefaultQuota, hasDefaultQuota ? nextDefaultQuota : null,
+        hasColor, hasColor ? nextColor : null,
+        offerCode,
+      ]
     );
 
-    const offer = db.prepare(
-      'SELECT id, code, label, default_quota, color, is_active, created_at FROM offers WHERE code = ?'
-    ).get(offerCode);
+    const offer = await db.queryOne(
+      'SELECT id, code, label, default_quota, color, is_active, created_at FROM offers WHERE code = $1',
+      [offerCode]
+    );
 
     const io = req.app.get('io');
-    if (io) emitQuotasUpdate(io);
+    if (io) await emitQuotasUpdate(io);
 
     res.json({ offer });
   } catch (err) {
@@ -199,28 +205,30 @@ router.put('/offers/:offerCode', requireSupervisor, (req, res) => {
  * DELETE /api/supervisor/offers/:offerCode
  * Suppression logique: bascule l'offre en inactif.
  */
-router.delete('/offers/:offerCode', requireSupervisor, (req, res) => {
+router.delete('/offers/:offerCode', requireSupervisor, async (req, res) => {
   try {
     const offerCode = typeof req.params.offerCode === 'string' ? req.params.offerCode.trim() : '';
     if (!isValidOfferCode(offerCode)) {
       return Errors.invalidType(res, 'offerCode', 'code offre alphanumérique (ex: OFFRE_A)');
     }
 
-    const existing = db.prepare(
-      'SELECT id, code, label, default_quota, color, is_active, created_at FROM offers WHERE code = ?'
-    ).get(offerCode);
+    const existing = await db.queryOne(
+      'SELECT id, code, label, default_quota, color, is_active, created_at FROM offers WHERE code = $1',
+      [offerCode]
+    );
     if (!existing) return Errors.notFound(res, `Offre "${offerCode}"`);
-    if (existing.is_active === 0) {
+    if (!existing.is_active) {
       return res.json({ offer: existing, changed: false, message: 'Offre déjà désactivée.' });
     }
 
-    db.prepare('UPDATE offers SET is_active = 0 WHERE code = ?').run(offerCode);
-    const offer = db.prepare(
-      'SELECT id, code, label, default_quota, color, is_active, created_at FROM offers WHERE code = ?'
-    ).get(offerCode);
+    await db.query('UPDATE offers SET is_active = false WHERE code = $1', [offerCode]);
+    const offer = await db.queryOne(
+      'SELECT id, code, label, default_quota, color, is_active, created_at FROM offers WHERE code = $1',
+      [offerCode]
+    );
 
     const io = req.app.get('io');
-    if (io) emitQuotasUpdate(io);
+    if (io) await emitQuotasUpdate(io);
 
     res.json({ offer, changed: true, message: 'Offre désactivée.' });
   } catch (err) {
@@ -230,30 +238,32 @@ router.delete('/offers/:offerCode', requireSupervisor, (req, res) => {
 
 /**
  * PATCH /api/supervisor/offers/:offerCode/activate
- * Réactivation logique: is_active = 1 (+ diffusion quotas pour les agents).
+ * Réactivation logique: is_active = true (+ diffusion quotas pour les agents).
  */
-router.patch('/offers/:offerCode/activate', requireSupervisor, (req, res) => {
+router.patch('/offers/:offerCode/activate', requireSupervisor, async (req, res) => {
   try {
     const offerCode = typeof req.params.offerCode === 'string' ? req.params.offerCode.trim() : '';
     if (!isValidOfferCode(offerCode)) {
       return Errors.invalidType(res, 'offerCode', 'code offre alphanumérique (ex: OFFRE_A)');
     }
 
-    const existing = db.prepare(
-      'SELECT id, code, label, default_quota, color, is_active, created_at FROM offers WHERE code = ?'
-    ).get(offerCode);
+    const existing = await db.queryOne(
+      'SELECT id, code, label, default_quota, color, is_active, created_at FROM offers WHERE code = $1',
+      [offerCode]
+    );
     if (!existing) return Errors.notFound(res, `Offre "${offerCode}"`);
-    if (existing.is_active === 1) {
+    if (existing.is_active) {
       return res.json({ offer: existing, changed: false, message: 'Offre déjà active.' });
     }
 
-    db.prepare('UPDATE offers SET is_active = 1 WHERE code = ?').run(offerCode);
-    const offer = db.prepare(
-      'SELECT id, code, label, default_quota, color, is_active, created_at FROM offers WHERE code = ?'
-    ).get(offerCode);
+    await db.query('UPDATE offers SET is_active = true WHERE code = $1', [offerCode]);
+    const offer = await db.queryOne(
+      'SELECT id, code, label, default_quota, color, is_active, created_at FROM offers WHERE code = $1',
+      [offerCode]
+    );
 
     const io = req.app.get('io');
-    if (io) emitQuotasUpdate(io);
+    if (io) await emitQuotasUpdate(io);
 
     res.json({ offer, changed: true, message: 'Offre réactivée.' });
   } catch (err) {
@@ -266,7 +276,7 @@ router.patch('/offers/:offerCode/activate', requireSupervisor, (req, res) => {
 /**
  * GET /api/supervisor/agents?status=active|inactive
  */
-router.get('/agents', requireSupervisor, (req, res) => {
+router.get('/agents', requireSupervisor, async (req, res) => {
   try {
     const status = typeof req.query.status === 'string' ? req.query.status.trim().toLowerCase() : '';
     const sessionRegistry = req.app.get('sessionRegistry');
@@ -276,17 +286,17 @@ router.get('/agents', requireSupervisor, (req, res) => {
     let rows;
 
     if (!status) {
-      rows = db.prepare(
+      rows = await db.queryAll(
         'SELECT matricule, nom, prenom, is_active FROM agents ORDER BY nom ASC, prenom ASC, matricule ASC'
-      ).all();
+      );
     } else if (status === 'active') {
-      rows = db.prepare(
-        'SELECT matricule, nom, prenom, is_active FROM agents WHERE is_active = 1 ORDER BY nom ASC, prenom ASC, matricule ASC'
-      ).all();
+      rows = await db.queryAll(
+        'SELECT matricule, nom, prenom, is_active FROM agents WHERE is_active = true ORDER BY nom ASC, prenom ASC, matricule ASC'
+      );
     } else if (status === 'inactive') {
-      rows = db.prepare(
-        'SELECT matricule, nom, prenom, is_active FROM agents WHERE is_active = 0 ORDER BY nom ASC, prenom ASC, matricule ASC'
-      ).all();
+      rows = await db.queryAll(
+        'SELECT matricule, nom, prenom, is_active FROM agents WHERE is_active = false ORDER BY nom ASC, prenom ASC, matricule ASC'
+      );
     } else {
       return Errors.invalidType(res, 'status', 'active|inactive');
     }
@@ -306,7 +316,7 @@ router.get('/agents', requireSupervisor, (req, res) => {
  * POST /api/supervisor/agents
  * Body: { matricule, nom, prenom }
  */
-router.post('/agents', requireSupervisor, (req, res) => {
+router.post('/agents', requireSupervisor, async (req, res) => {
   try {
     const matricule = typeof req.body.matricule === 'string' ? req.body.matricule.trim() : '';
     const nom = typeof req.body.nom === 'string' ? req.body.nom.trim() : '';
@@ -318,14 +328,15 @@ router.post('/agents', requireSupervisor, (req, res) => {
     if (!prenom) missing.push('prenom');
     if (missing.length > 0) return Errors.missingField(res, ...missing);
 
-    const existing = db.prepare('SELECT matricule FROM agents WHERE matricule = ?').get(matricule);
+    const existing = await db.queryOne('SELECT matricule FROM agents WHERE matricule = $1', [matricule]);
     if (existing) return Errors.conflict(res, `Matricule "${matricule}" déjà existant`);
 
-    db.prepare(
-      'INSERT INTO agents (matricule, nom, prenom, is_active) VALUES (?, ?, ?, 1)'
-    ).run(matricule, nom, prenom);
+    await db.query(
+      'INSERT INTO agents (matricule, nom, prenom, is_active) VALUES ($1, $2, $3, true)',
+      [matricule, nom, prenom]
+    );
 
-    res.status(201).json({ agent: { matricule, nom, prenom, is_active: 1 } });
+    res.status(201).json({ agent: { matricule, nom, prenom, is_active: true } });
   } catch (err) {
     Errors.internal(res, err);
   }
@@ -334,15 +345,18 @@ router.post('/agents', requireSupervisor, (req, res) => {
 /**
  * PATCH /api/supervisor/agents/:matricule/activate
  */
-router.patch('/agents/:matricule/activate', requireSupervisor, (req, res) => {
+router.patch('/agents/:matricule/activate', requireSupervisor, async (req, res) => {
   try {
     const matricule = typeof req.params.matricule === 'string' ? req.params.matricule.trim() : '';
     if (!matricule) return Errors.missingField(res, 'matricule');
 
-    const result = db.prepare('UPDATE agents SET is_active = 1 WHERE matricule = ?').run(matricule);
-    if (result.changes === 0) return Errors.notFound(res, `Agent "${matricule}"`);
+    const result = await db.query('UPDATE agents SET is_active = true WHERE matricule = $1', [matricule]);
+    if (result.rowCount === 0) return Errors.notFound(res, `Agent "${matricule}"`);
 
-    const agent = db.prepare('SELECT matricule, nom, prenom, is_active FROM agents WHERE matricule = ?').get(matricule);
+    const agent = await db.queryOne(
+      'SELECT matricule, nom, prenom, is_active FROM agents WHERE matricule = $1',
+      [matricule]
+    );
     res.json({ agent });
   } catch (err) {
     Errors.internal(res, err);
@@ -352,15 +366,18 @@ router.patch('/agents/:matricule/activate', requireSupervisor, (req, res) => {
 /**
  * PATCH /api/supervisor/agents/:matricule/deactivate
  */
-router.patch('/agents/:matricule/deactivate', requireSupervisor, (req, res) => {
+router.patch('/agents/:matricule/deactivate', requireSupervisor, async (req, res) => {
   try {
     const matricule = typeof req.params.matricule === 'string' ? req.params.matricule.trim() : '';
     if (!matricule) return Errors.missingField(res, 'matricule');
 
-    const result = db.prepare('UPDATE agents SET is_active = 0 WHERE matricule = ?').run(matricule);
-    if (result.changes === 0) return Errors.notFound(res, `Agent "${matricule}"`);
+    const result = await db.query('UPDATE agents SET is_active = false WHERE matricule = $1', [matricule]);
+    if (result.rowCount === 0) return Errors.notFound(res, `Agent "${matricule}"`);
 
-    const agent = db.prepare('SELECT matricule, nom, prenom, is_active FROM agents WHERE matricule = ?').get(matricule);
+    const agent = await db.queryOne(
+      'SELECT matricule, nom, prenom, is_active FROM agents WHERE matricule = $1',
+      [matricule]
+    );
     res.json({ agent });
   } catch (err) {
     Errors.internal(res, err);
@@ -380,14 +397,15 @@ router.delete('/agents/:matricule', requireSupervisor, (req, res) =>
 /**
  * GET /api/supervisor/quotas
  */
-router.get('/quotas', requireSupervisor, (req, res) => {
+router.get('/quotas', requireSupervisor, async (req, res) => {
   try {
-    const offers = db.prepare('SELECT * FROM offers ORDER BY code').all();
-    const data = offers.map(offer => {
-      const rule   = db.prepare('SELECT * FROM quota_rules WHERE offer_id = ?').get(offer.id) || {};
-      const quota  = effectiveQuota(offer.id);
-      const active = countActivePauses(offer.id);
-      return {
+    const offers = await db.queryAll('SELECT * FROM offers ORDER BY code');
+    const data = [];
+    for (const offer of offers) {
+      const rule   = await db.queryOne('SELECT * FROM quota_rules WHERE offer_id = $1', [offer.id]) || {};
+      const quota  = await effectiveQuota(offer.id);
+      const active = await countActivePauses(offer.id);
+      data.push({
         offer,
         rule: {
           fixedQuota:     rule.fixed_quota    ?? null,
@@ -399,8 +417,8 @@ router.get('/quotas', requireSupervisor, (req, res) => {
         effectiveQuota: quota,
         currentPaused:  active,
         blocked:        active >= quota,
-      };
-    });
+      });
+    }
     res.json({ quotas: data });
   } catch (err) {
     Errors.internal(res, err);
@@ -418,12 +436,12 @@ router.get('/quotas', requireSupervisor, (req, res) => {
  *   - allowedPercent: float [0, 100].
  *   - Si presentCount fourni, allowedPercent doit l'être aussi (et vice-versa).
  */
-router.put('/quotas/:offerCode', requireSupervisor, (req, res) => {
+router.put('/quotas/:offerCode', requireSupervisor, async (req, res) => {
   try {
     const { offerCode } = req.params;
     if (!isValidOfferCode(offerCode)) return Errors.notFound(res, `Offre "${offerCode}"`);
 
-    const offer = db.prepare('SELECT * FROM offers WHERE code = ?').get(offerCode);
+    const offer = await db.queryOne('SELECT * FROM offers WHERE code = $1', [offerCode]);
     if (!offer) return Errors.notFound(res, `Offre "${offerCode}"`);
 
     const { fixedQuota, presentCount, allowedPercent } = req.body;
@@ -431,12 +449,10 @@ router.put('/quotas/:offerCode', requireSupervisor, (req, res) => {
     const hasCount   = presentCount   !== undefined;
     const hasPercent = allowedPercent !== undefined;
 
-    // Au moins un champ requis
     if (!hasFixed && !hasCount && !hasPercent) {
       return Errors.missingField(res, 'fixedQuota | presentCount | allowedPercent');
     }
 
-    // Validation des types
     if (hasFixed && fixedQuota !== null && !isPositiveInt(fixedQuota)) {
       return Errors.invalidType(res, 'fixedQuota', 'entier >= 0 ou null');
     }
@@ -446,54 +462,51 @@ router.put('/quotas/:offerCode', requireSupervisor, (req, res) => {
     if (hasPercent && !isPercent(allowedPercent)) {
       return Errors.invalidType(res, 'allowedPercent', 'nombre entre 0 et 100');
     }
-    // Cohérence: presentCount et allowedPercent doivent aller ensemble
     if ((hasCount && !hasPercent) || (!hasCount && hasPercent)) {
       return Errors.invalidType(res, 'presentCount+allowedPercent',
         'doivent être fournis ensemble pour le calcul par pourcentage');
     }
 
     const now      = nowIso();
-    const existing = db.prepare('SELECT id FROM quota_rules WHERE offer_id = ?').get(offer.id);
+    const existing = await db.queryOne('SELECT id FROM quota_rules WHERE offer_id = $1', [offer.id]);
 
-    // Résoudre les valeurs à persister
-    // Si fixedQuota est explicitement envoyé (même null), on l'applique.
-    // Si non envoyé, on conserve l'ancienne valeur (COALESCE côté SQL pour UPDATE).
     if (existing) {
-      db.prepare(
+      await db.query(
         'UPDATE quota_rules SET ' +
-        'fixed_quota     = CASE WHEN ? = 1 THEN ? ELSE fixed_quota END, ' +
-        'present_count   = CASE WHEN ? = 1 THEN ? ELSE present_count END, ' +
-        'allowed_percent = CASE WHEN ? = 1 THEN ? ELSE allowed_percent END, ' +
-        'updated_at = ? WHERE offer_id = ?'
-      ).run(
-        hasFixed   ? 1 : 0, hasFixed   ? fixedQuota     : null,
-        hasCount   ? 1 : 0, hasCount   ? presentCount   : null,
-        hasPercent ? 1 : 0, hasPercent ? allowedPercent : null,
-        now, offer.id
+        'fixed_quota     = CASE WHEN $1 THEN $2 ELSE fixed_quota END, ' +
+        'present_count   = CASE WHEN $3 THEN $4 ELSE present_count END, ' +
+        'allowed_percent = CASE WHEN $5 THEN $6 ELSE allowed_percent END, ' +
+        'updated_at = $7 WHERE offer_id = $8',
+        [
+          hasFixed, hasFixed ? fixedQuota : null,
+          hasCount, hasCount ? presentCount : null,
+          hasPercent, hasPercent ? allowedPercent : null,
+          now, offer.id,
+        ]
       );
     } else {
-      db.prepare(
-        'INSERT INTO quota_rules (offer_id, fixed_quota, present_count, allowed_percent, updated_at) VALUES (?, ?, ?, ?, ?)'
-      ).run(offer.id,
-        hasFixed   ? fixedQuota     : null,
-        hasCount   ? presentCount   : null,
-        hasPercent ? allowedPercent : null,
-        now
+      await db.query(
+        'INSERT INTO quota_rules (offer_id, fixed_quota, present_count, allowed_percent, updated_at) VALUES ($1, $2, $3, $4, $5)',
+        [
+          offer.id,
+          hasFixed   ? fixedQuota     : null,
+          hasCount   ? presentCount   : null,
+          hasPercent ? allowedPercent : null,
+          now,
+        ]
       );
     }
 
-    const quota  = effectiveQuota(offer.id);
-    const active = countActivePauses(offer.id);
+    const quota  = await effectiveQuota(offer.id);
+    const active = await countActivePauses(offer.id);
 
-    // --- Diffusions Socket.io ---
     const io = req.app.get('io');
     if (io) {
       const quotaPayload = { offerCode, effectiveQuota: quota, currentPaused: active, blockedForNewStarts: active >= quota };
-      // Cibler la room de l'offre ET broadcast global
       io.to(`offer:${offerCode}`).emit('quota:updated', quotaPayload);
       io.emit('quota:updated', quotaPayload);
 
-      emitOfferUpdate(io, offerCode, offer.id);
+      await emitOfferUpdate(io, offerCode, offer.id);
     }
 
     res.json({ offerCode, effectiveQuota: quota, currentPaused: active, blocked: active >= quota });
@@ -509,36 +522,39 @@ router.put('/quotas/:offerCode', requireSupervisor, (req, res) => {
  * Clôture immédiatement la pause active d'un agent avec le motif 'supervisor_forced'.
  * Body: { agent_matricule }
  */
-router.post('/pause/force-stop', requireSupervisor, (req, res) => {
+router.post('/pause/force-stop', requireSupervisor, async (req, res) => {
   try {
     const agentMatricule = typeof req.body.agent_matricule === 'string' ? req.body.agent_matricule.trim() : '';
     if (!agentMatricule) return Errors.missingField(res, 'agent_matricule');
 
     const now = nowIso();
 
-    const result = db.transaction(() => {
-      const pause = db.prepare(
+    const result = await db.withTransaction(async (client) => {
+      const pauseResult = await client.query(
         'SELECT p.*, o.code AS offer_code, o.id AS offer_id_val ' +
         'FROM pauses p JOIN offers o ON o.id = p.offer_id ' +
-        "WHERE p.agent_matricule = ? AND p.status = 'in_progress' LIMIT 1"
-      ).get(agentMatricule);
+        "WHERE p.agent_matricule = $1 AND p.status = 'in_progress' LIMIT 1",
+        [agentMatricule]
+      );
+      const pause = pauseResult.rows[0];
 
       if (!pause) return { err: 'NOT_FOUND' };
 
       const durationSeconds = Math.round((new Date(now) - new Date(pause.start_time)) / 1000);
 
-      db.prepare(
-        "UPDATE pauses SET status = 'ended', end_time = ?, end_reason = 'supervisor_forced', duration_seconds = ?, updated_at = ? WHERE id = ?"
-      ).run(now, durationSeconds, now, pause.id);
+      await client.query(
+        "UPDATE pauses SET status = 'ended', end_time = $1, end_reason = 'supervisor_forced', duration_seconds = $2, updated_at = $3 WHERE id = $4",
+        [now, durationSeconds, now, pause.id]
+      );
 
       return { pause, durationSeconds, endTime: now };
-    })();
+    });
 
     if (result.err === 'NOT_FOUND') return Errors.notFound(res, 'Pause active pour cet agent');
 
     const io = req.app.get('io');
     if (io) {
-      const agent     = db.prepare('SELECT nom, prenom FROM agents WHERE matricule = ?').get(agentMatricule);
+      const agent     = await db.queryOne('SELECT nom, prenom FROM agents WHERE matricule = $1', [agentMatricule]);
       const offerCode = result.pause.offer_code;
 
       const payload = {
@@ -554,8 +570,8 @@ router.post('/pause/force-stop', requireSupervisor, (req, res) => {
       };
       io.to(`offer:${offerCode}`).emit('pause:stopped', payload);
       io.emit('pause:stopped', payload);
-      emitOfferUpdate(io, offerCode, result.pause.offer_id_val);
-      emitQuotasUpdate(io);
+      await emitOfferUpdate(io, offerCode, result.pause.offer_id_val);
+      await emitQuotasUpdate(io);
     }
 
     res.json({ endTime: result.endTime, durationSeconds: result.durationSeconds });
@@ -596,14 +612,13 @@ router.post('/sessions/release', requireSupervisor, (req, res) => {
 /**
  * GET /api/supervisor/history?offerCode=&from=&to=&page=&limit=
  */
-router.get('/history', requireSupervisor, (req, res) => {
+router.get('/history', requireSupervisor, async (req, res) => {
   try {
     const { offerCode, from, to } = req.query;
     const page  = Math.max(1, parseInt(req.query.page,  10) || 1);
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
     const offset = (page - 1) * limit;
 
-    // Validation optionnelle des filtres
     if (offerCode && !isValidOfferCode(offerCode)) {
       return Errors.invalidType(res, 'offerCode', 'code offre alphanumérique');
     }
@@ -613,13 +628,15 @@ router.get('/history', requireSupervisor, (req, res) => {
     const where = ["p.status = 'ended'"];
     const args  = [];
 
-    if (offerCode) { where.push('o.code = ?');       args.push(offerCode); }
-    if (from)      { where.push('p.start_time >= ?'); args.push(from); }
-    if (to)        { where.push('p.start_time <= ?'); args.push(to); }
+    if (offerCode) { args.push(offerCode); where.push(`o.code = $${args.length}`); }
+    if (from)      { args.push(from);      where.push(`p.start_time >= $${args.length}`); }
+    if (to)        { args.push(to);        where.push(`p.start_time <= $${args.length}`); }
 
     const whereClause = 'WHERE ' + where.join(' AND ');
+    const limitIdx  = args.length + 1;
+    const offsetIdx = args.length + 2;
 
-    const rows = db.prepare(
+    const rows = await db.queryAll(
       `SELECT p.id, p.agent_matricule, a.nom, a.prenom, o.code AS offer_code, o.label AS offer_label,
               p.start_time, p.end_time, p.end_reason, p.duration_seconds, p.max_minutes_at_end
        FROM pauses p
@@ -627,12 +644,15 @@ router.get('/history', requireSupervisor, (req, res) => {
        JOIN offers o ON o.id = p.offer_id
        ${whereClause}
        ORDER BY p.start_time DESC
-       LIMIT ? OFFSET ?`
-    ).all(...args, limit, offset);
+       LIMIT $${limitIdx} OFFSET $${offsetIdx}`,
+      [...args, limit, offset]
+    );
 
-    const { total } = db.prepare(
-      `SELECT COUNT(*) AS total FROM pauses p JOIN offers o ON o.id = p.offer_id ${whereClause}`
-    ).get(...args);
+    const countRow = await db.queryOne(
+      `SELECT COUNT(*) AS total FROM pauses p JOIN offers o ON o.id = p.offer_id ${whereClause}`,
+      args
+    );
+    const total = Number(countRow.total);
 
     res.json({ rows, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
   } catch (err) {
@@ -647,9 +667,9 @@ router.get('/history', requireSupervisor, (req, res) => {
  * Ne renvoie jamais github_token ni supervisor_pin en clair ;
  * indicateurs *_configured uniquement.
  */
-router.get('/settings', requireSupervisor, (req, res) => {
+router.get('/settings', requireSupervisor, async (req, res) => {
   try {
-    const rows = db.prepare('SELECT key, value FROM app_settings').all();
+    const rows = await db.queryAll('SELECT key, value FROM app_settings');
     const settings = Object.fromEntries(rows.map(r => [r.key, r.value]));
     const rawToken = settings.github_token;
     delete settings.github_token;
@@ -673,7 +693,7 @@ router.get('/settings', requireSupervisor, (req, res) => {
  * github_token : clé absente → inchangé ; "" → effacement ; chaîne non vide → remplacement.
  * supervisor_pin : clé absente → inchangé ; si présent → doit être /^\d{4,6}$/ (pas vide).
  */
-router.put('/settings', requireSupervisor, (req, res) => {
+router.put('/settings', requireSupervisor, async (req, res) => {
   try {
     const body = req.body || {};
 
@@ -681,16 +701,14 @@ router.put('/settings', requireSupervisor, (req, res) => {
       if (typeof body.github_owner !== 'string') {
         return Errors.invalidType(res, 'github_owner', 'chaîne');
       }
-      db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('github_owner', ?)")
-        .run(normalizeGithubOwnerRepo(body.github_owner));
+      await db.query(UPSERT_SETTING, ['github_owner', normalizeGithubOwnerRepo(body.github_owner)]);
     }
 
     if (body.github_repo !== undefined) {
       if (typeof body.github_repo !== 'string') {
         return Errors.invalidType(res, 'github_repo', 'chaîne');
       }
-      db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('github_repo', ?)")
-        .run(normalizeGithubOwnerRepo(body.github_repo));
+      await db.query(UPSERT_SETTING, ['github_repo', normalizeGithubOwnerRepo(body.github_repo)]);
     }
 
     if (Object.prototype.hasOwnProperty.call(body, 'github_token')) {
@@ -699,7 +717,7 @@ router.put('/settings', requireSupervisor, (req, res) => {
         return Errors.invalidType(res, 'github_token', 'chaîne ou chaîne vide');
       }
       const tokenVal = typeof t === 'string' ? t : '';
-      db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('github_token', ?)").run(tokenVal);
+      await db.query(UPSERT_SETTING, ['github_token', tokenVal]);
     }
 
     if (Object.prototype.hasOwnProperty.call(body, 'supervisor_pin')) {
@@ -714,7 +732,7 @@ router.put('/settings', requireSupervisor, (req, res) => {
       if (!SUPERVISOR_PIN_RE.test(trimmed)) {
         return apiError(res, 400, 'INVALID_PIN', 'Le code PIN doit contenir entre 4 et 6 chiffres.');
       }
-      db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('supervisor_pin', ?)").run(trimmed);
+      await db.query(UPSERT_SETTING, ['supervisor_pin', trimmed]);
     }
 
     res.json({ ok: true });
@@ -729,14 +747,14 @@ router.put('/settings', requireSupervisor, (req, res) => {
  * Active ou désactive le mode urgence.
  * Diffuse system:maintenance-mode à tous les clients via Socket.io.
  */
-router.put('/settings/maintenance-mode', requireSupervisor, (req, res) => {
+router.put('/settings/maintenance-mode', requireSupervisor, async (req, res) => {
   try {
     const { active } = req.body;
     if (active === undefined) return Errors.missingField(res, 'active');
     if (typeof active !== 'boolean') return Errors.invalidType(res, 'active', 'boolean');
 
     const value = active ? '1' : '0';
-    db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('maintenance_mode', ?)").run(value);
+    await db.query(UPSERT_SETTING, ['maintenance_mode', value]);
 
     const io = req.app.get('io');
     if (io) io.emit('system:maintenance-mode', { active });
@@ -751,9 +769,9 @@ router.put('/settings/maintenance-mode', requireSupervisor, (req, res) => {
  * GET /api/supervisor/settings/maintenance-mode
  * Retourne l'état courant du mode urgence.
  */
-router.get('/settings/maintenance-mode', requireSupervisor, (req, res) => {
+router.get('/settings/maintenance-mode', requireSupervisor, async (req, res) => {
   try {
-    const row = db.prepare("SELECT value FROM app_settings WHERE key = 'maintenance_mode'").get();
+    const row = await db.queryOne("SELECT value FROM app_settings WHERE key = 'maintenance_mode'");
     res.json({ maintenanceMode: row ? row.value === '1' : false });
   } catch (err) {
     Errors.internal(res, err);
@@ -764,7 +782,7 @@ router.get('/settings/maintenance-mode', requireSupervisor, (req, res) => {
  * PUT /api/supervisor/settings/history-retention-days
  * Body: { days }
  */
-router.put('/settings/history-retention-days', requireSupervisor, (req, res) => {
+router.put('/settings/history-retention-days', requireSupervisor, async (req, res) => {
   try {
     const { days } = req.body;
     if (days === undefined)       return Errors.missingField(res, 'days');
@@ -772,7 +790,7 @@ router.put('/settings/history-retention-days', requireSupervisor, (req, res) => 
       return Errors.invalidType(res, 'days', 'entier >= 1');
     }
 
-    db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('history_retention_days', ?)").run(String(days));
+    await db.query(UPSERT_SETTING, ['history_retention_days', String(days)]);
     res.json({ historyRetentionDays: days });
   } catch (err) {
     Errors.internal(res, err);
@@ -785,7 +803,7 @@ router.put('/settings/history-retention-days', requireSupervisor, (req, res) => 
  * Modifie la durée maximale d'une pause. Prise en effet immédiate (scheduler dynamique).
  * Diffuse system:settings-updated { maxPauseMinutes } via Socket.io.
  */
-router.put('/settings/max-pause-minutes', requireSupervisor, (req, res) => {
+router.put('/settings/max-pause-minutes', requireSupervisor, async (req, res) => {
   try {
     const { minutes } = req.body;
     if (minutes === undefined) return Errors.missingField(res, 'minutes');
@@ -793,7 +811,7 @@ router.put('/settings/max-pause-minutes', requireSupervisor, (req, res) => {
       return Errors.invalidType(res, 'minutes', 'entier entre 1 et 120');
     }
 
-    db.prepare("INSERT OR REPLACE INTO app_settings (key, value) VALUES ('max_pause_minutes', ?)").run(String(minutes));
+    await db.query(UPSERT_SETTING, ['max_pause_minutes', String(minutes)]);
 
     const io = req.app.get('io');
     if (io) io.emit('system:settings-updated', { maxPauseMinutes: minutes });

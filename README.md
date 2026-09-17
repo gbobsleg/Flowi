@@ -6,18 +6,11 @@ Application web de gestion des temps de pause pour centre d’appels : rattachem
 
 ## Prérequis
 
-- [Node.js](https://nodejs.org/) **20.x ou 22.x** (LTS recommandée)
-- Outils de build natifs pour `better-sqlite3` si `npm install` échoue (Python / Visual Studio Build Tools sous Windows)
-
-## Installation
-
-```bash
-npm install
-```
+- [Docker](https://docs.docker.com/get-docker/) et Docker Compose (Docker Desktop sous Windows)
 
 ## Configuration
 
-Copier le fichier d’exemple et adapter les variables :
+Copier le fichier d’exemple et adapter si besoin :
 
 ```bash
 copy .env.example .env
@@ -25,24 +18,35 @@ copy .env.example .env
 
 Sur Linux ou macOS : `cp .env.example .env`.
 
-Principales variables : `PORT`, `DB_PATH`, `SUPERVISOR_PIN`, quotas et options OTA (`GITHUB_OWNER`, `GITHUB_REPO`, etc. — voir [.env.example](.env.example)).
+La persistance est **PostgreSQL uniquement**, via `DATABASE_URL`. Avec Docker Compose, l’hôte est le service `postgres` :
 
-## Amorçage des données
-
-**`npm run seed` est obligatoire** après la première création de la base : il initialise les paramètres persistés dans SQLite (`app_settings`), dont le **PIN superviseur par défaut (`1234`)**, les clés GitHub OTA vides, les offres par défaut, les règles de quota et l’annuaire d’agents de démonstration.
-
-Sans ce passage, les clés attendues en base (PIN, maintenance, durées, etc.) peuvent être absentes et le comportement métier sera incomplet.
-
-```bash
-npm run seed
+```
+DATABASE_URL=postgres://flowi:flowi@postgres:5432/flowi
 ```
 
-Le script est **idempotent** : vous pouvez le relancer sans erreur après une mise à jour.
+Cette valeur est aussi imposée par [`docker-compose.yml`](docker-compose.yml) (`POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` = `flowi`). Autres variables : `PORT`, `SUPERVISOR_PIN`, quotas et options OTA (`GITHUB_OWNER`, `GITHUB_REPO`, etc. — voir [.env.example](.env.example)).
 
 ## Lancement
 
 ```bash
-npm start
+docker compose up -d --build
 ```
 
-Équivalent : `node src/server.js`. En développement avec rechargement : `npm run dev`.
+Le service `flowi` attend que PostgreSQL soit `healthy`, applique les migrations, exécute le seed idempotent, puis démarre le serveur.
+
+Accès : [http://127.0.0.1:3001](http://127.0.0.1:3001)
+
+- Agent : `/agent/`
+- Superviseur : `/supervisor/` (PIN par défaut après seed : `1234`)
+
+Arrêt : `docker compose down`. Les données restent dans le volume nommé `flowi_pgdata`.
+
+## Amorçage des données
+
+Le seed s’exécute automatiquement au démarrage du conteneur (`scripts/docker-entrypoint.sh`). Il initialise `app_settings` (PIN superviseur `1234`, clés GitHub OTA, durées), les offres par défaut, les règles de quota et l’annuaire d’agents de démonstration.
+
+Le script est **idempotent**. Relance manuelle :
+
+```bash
+docker compose exec flowi node scripts/seed.js
+```
