@@ -4,26 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Flowi - Agent</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
 
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            brand: { 50:'#f0f9ff', 100:'#e0f2fe', 500:'#0ea5e9', 600:'#0284c7', 700:'#0369a1' }
-          },
-          keyframes: {
-            blink: { '0%,100%': { opacity: '1' }, '50%': { opacity: '0.25' } }
-          },
-          animation: {
-            blink: 'blink 1s ease-in-out infinite'
-          }
-        }
-      }
-    }
-  </script>
+  <script src="/assets/theme.js"></script>
 
   <!-- Alpine.js CDN -->
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -41,20 +26,20 @@
   </style>
 </head>
 
-<body class="bg-slate-50 min-h-screen font-sans antialiased text-slate-800">
+<body class="bg-shell-bg min-h-screen font-sans antialiased text-sm text-slate-800">
 
 <!-- ═══════════════════════════════════════════════════
      HEADER
 ════════════════════════════════════════════════════ -->
-<header class="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
+<header class="bg-brand-500 text-white h-14 px-4 flex items-center justify-between sticky top-0 z-10">
   <div class="flex items-center gap-2">
     <span class="w-2 h-2 rounded-full bg-brand-500" :class="socketConnected ? 'bg-green-400' : 'bg-red-400 animate-pulse'"></span>
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" class="w-8 h-8 mr-2" fill="currentColor">
       <path d="M194,100c0,51.83-42.17,94-94,94S6,151.83,6,100,48.17,6,100,6c7.73,0,14,6.27,14,14s-6.27,14-14,14c-36.39,0-66,29.61-66,66s29.61,66,66,66,66-29.61,66-66c0-1.45.22-2.85.63-4.16.18-.58.41-1.14.66-1.68,1.44-3.13,4-5.64,7.17-7.01.11-.05.23-.09.35-.14,1.61-.64,3.36-1.01,5.2-1.01,6.28,0,11.6,4.14,13.37,9.84.41,1.32.63,2.71.63,4.16ZM72,64c-2.21,0-4,1.79-4,4v64c0,2.21,1.79,4,4,4h12c2.21,0,4-1.79,4-4v-64c0-2.21-1.79-4-4-4h-12ZM112,68v64c0,2.21,1.79,4,4,4h12c2.21,0,4-1.79,4-4v-64c0-2.21-1.79-4-4-4h-12c-2.21,0-4,1.79-4,4Z"/>
     </svg>
-    <span class="font-semibold text-slate-700 tracking-tight text-sm">Flowi - Agent</span>
+    <span class="font-semibold tracking-tight text-sm">Flowi - Agent</span>
   </div>
-  <div class="text-xs text-slate-400" x-text="socketConnected ? 'Connecté' : 'Reconnexion…'"></div>
+  <div class="text-xs text-white/80" x-text="socketConnected ? 'Connecté' : 'Reconnexion…'"></div>
 </header>
 
 <!-- Bandeau MODE URGENCE -->
@@ -76,7 +61,7 @@
 <main class="max-w-2xl mx-auto px-4 py-6 space-y-6">
 
   <!-- ── Quotas offres (temps réel) ───────────────── -->
-  <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+  <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
     <div class="flex items-center justify-between mb-3">
       <h2 class="text-xs font-semibold uppercase tracking-widest text-slate-400">Quotas par offre</h2>
       <span class="text-[11px] text-slate-400">Temps réel</span>
@@ -88,7 +73,7 @@
           :style="{ backgroundColor: resolveOfferColor(quota.offre_id, quota.color) }"
           :class="isQuotaReached(quota)
             ? 'border-red-300'
-            : 'border-slate-200'"
+            : 'border-shell-border'"
         >
           <div class="text-xs font-semibold truncate" :class="isQuotaReached(quota) ? 'text-red-800' : 'text-slate-800'" x-text="quota.nom"></div>
           <div class="mt-1 text-sm font-mono tabular-nums" :class="isQuotaReached(quota) ? 'text-red-700' : 'text-slate-700'">
@@ -102,7 +87,7 @@
   </section>
 
   <!-- ── Identification ─────────────────────────────── -->
-  <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+  <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
     <h2 class="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-4">Mon identification</h2>
 
     <!-- Recherche agent avec autocomplétion stricte -->
@@ -120,13 +105,13 @@
         placeholder="Tapez au moins 2 caractères…"
         autocomplete="off"
         :disabled="isPaused"
-        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent disabled:bg-slate-100 disabled:cursor-not-allowed transition"
+        class="w-full border border-shell-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent disabled:bg-slate-100 disabled:cursor-not-allowed transition"
       >
       <!-- Dropdown suggestions -->
       <ul
         x-show="showSuggestions && suggestions.length > 0"
         x-cloak
-        class="absolute z-20 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden text-sm"
+        class="absolute z-20 mt-1 w-full bg-white border border-shell-border rounded-lg shadow-lg overflow-hidden text-sm"
       >
         <template x-for="(s, i) in suggestions" :key="s.agent_matricule">
           <li
@@ -171,7 +156,7 @@
         @change="persistLocal(); evaluateBlockStatus()"
         :disabled="isPaused || !profilValideSelectionne"
         :class="!profilValideSelectionne ? 'opacity-60' : ''"
-        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent disabled:bg-slate-100 disabled:cursor-not-allowed transition bg-white"
+        class="w-full border border-shell-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent disabled:bg-slate-100 disabled:cursor-not-allowed transition bg-white"
       >
         <option value="">— Choisir une offre —</option>
         <template x-for="o in selectableOffers" :key="o.code">
@@ -218,7 +203,7 @@
         'bg-slate-200 text-slate-400 cursor-not-allowed': !isPaused && (!profilValideSelectionne || isOfferBlocked || maintenanceMode),
         'opacity-60 cursor-wait': isActionLoading
       }"
-      class="w-full rounded-xl py-3 px-4 font-semibold text-sm transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-500 select-none"
+      class="w-full rounded-md py-3 px-4 font-semibold text-sm transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-500 select-none"
     >
       <span x-show="isActionLoading" class="inline-flex items-center gap-2">
         <svg class="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
@@ -250,14 +235,14 @@
   </section>
 
   <!-- ── Dashboard global ───────────────────────────── -->
-  <section class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+  <section class="bg-white rounded-md border border-shell-border shadow-sm overflow-hidden">
     <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
       <h2 class="text-xs font-semibold uppercase tracking-widest text-slate-400">Agents en pause</h2>
       <div class="flex items-center gap-3">
         <!-- Filtre par offre -->
         <select
           x-model="filterOffer"
-          class="text-xs border border-slate-200 rounded-lg px-2 py-1 text-slate-600 focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white"
+          class="text-xs border border-shell-border rounded-lg px-2 py-1 text-slate-600 focus:outline-none focus:ring-1 focus:ring-brand-500 bg-white"
         >
           <option value="">Toutes les offres</option>
           <template x-for="o in offers" :key="o.code">
@@ -292,7 +277,7 @@
               </td>
               <td class="px-5 py-3">
                 <span
-                  class="inline-block text-slate-900 text-xs font-mono rounded px-1.5 py-0.5 border border-slate-200"
+                  class="inline-block text-slate-900 text-xs font-mono rounded px-1.5 py-0.5 border border-shell-border"
                   :style="{ backgroundColor: resolveOfferColorByCode(p.offerCode) }"
                   x-text="p.offerCode">
                 </span>

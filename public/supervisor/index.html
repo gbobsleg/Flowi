@@ -4,18 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Flowi - Superviseur</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
 
   <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          keyframes: { blink: { '0%,100%': { opacity:'1' }, '50%': { opacity:'0.2' } } },
-          animation: { blink: 'blink 1s ease-in-out infinite' }
-        }
-      }
-    }
-  </script>
+  <script src="/assets/theme.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
   <script src="/socket.io/socket.io.js"></script>
 
@@ -27,7 +19,7 @@
   </style>
 </head>
 
-<body class="bg-slate-100 min-h-screen font-sans antialiased text-slate-800">
+<body class="bg-shell-bg min-h-screen font-sans antialiased text-sm text-slate-800">
 
 <!-- ════════════════════════════════════════════
      ÉCRAN LOGIN
@@ -37,9 +29,9 @@
   x-cloak
   class="min-h-screen flex items-center justify-center px-4"
 >
-  <div class="w-full max-w-xs bg-white rounded-2xl shadow-lg border border-slate-200 p-8">
+  <div class="w-full max-w-xs bg-white rounded-md border border-shell-border p-8">
     <div class="text-center mb-7">
-      <div class="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-slate-900 mb-4">
+      <div class="inline-flex items-center justify-center w-14 h-14 rounded-full bg-brand-500 mb-4">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" class="w-10 h-10 text-white" fill="currentColor">
           <path d="M194,100c0,51.83-42.17,94-94,94S6,151.83,6,100,48.17,6,100,6c7.73,0,14,6.27,14,14s-6.27,14-14,14c-36.39,0-66,29.61-66,66s29.61,66,66,66,66-29.61,66-66c0-1.45.22-2.85.63-4.16.18-.58.41-1.14.66-1.68,1.44-3.13,4-5.64,7.17-7.01.11-.05.23-.09.35-.14,1.61-.64,3.36-1.01,5.2-1.01,6.28,0,11.6,4.14,13.37,9.84.41,1.32.63,2.71.63,4.16ZM72,64c-2.21,0-4,1.79-4,4v64c0,2.21,1.79,4,4,4h12c2.21,0,4-1.79,4-4v-64c0-2.21-1.79-4-4-4h-12ZM112,68v64c0,2.21,1.79,4,4,4h12c2.21,0,4-1.79,4-4v-64c0-2.21-1.79-4-4-4h-12c-2.21,0-4,1.79-4,4Z"/>
         </svg>
@@ -57,14 +49,14 @@
         placeholder="Code PIN"
         maxlength="12"
         autofocus
-        class="w-full border rounded-xl px-4 py-3 text-center text-xl tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-slate-400 mb-3"
-        :class="loginError ? 'border-red-400 bg-red-50' : 'border-slate-300'"
+        class="w-full border rounded-md px-4 py-3 text-center text-xl tracking-[0.4em] font-mono focus:outline-none focus:ring-2 focus:ring-brand-500 mb-3"
+        :class="loginError ? 'border-red-400 bg-red-50' : 'border-shell-border'"
       >
       <p x-show="loginError" x-cloak class="text-xs text-red-500 text-center mb-3" x-text="loginError"></p>
       <button
         type="submit"
         :disabled="loginLoading || !pinInput"
-        class="w-full bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white font-semibold rounded-xl py-2.5 text-sm transition"
+        class="w-full bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white font-semibold rounded-md py-2.5 text-sm transition"
       >
         <span x-show="loginLoading">Connexion…</span>
         <span x-show="!loginLoading">Accéder</span>
@@ -79,7 +71,7 @@
 <div x-show="isAuth" x-cloak class="min-h-screen flex flex-col">
 
   <!-- Header -->
-  <header class="bg-slate-900 text-white px-6 py-3 flex items-center justify-between sticky top-0 z-20 shadow">
+  <header class="bg-brand-500 text-white h-14 px-6 flex items-center justify-between sticky top-0 z-20">
     <div class="flex items-center gap-2">
       <span class="w-2 h-2 rounded-full shrink-0" :class="socketConnected ? 'bg-green-400' : 'bg-red-400 animate-pulse'"></span>
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" class="w-8 h-8 mr-2 shrink-0" fill="currentColor">
@@ -87,20 +79,20 @@
       </svg>
       <span class="font-bold text-sm tracking-tight">Flowi - Superviseur</span>
     </div>
-    <div class="flex items-center gap-4">
+    <div class="flex items-center self-stretch">
       <!-- Tabs -->
-      <nav class="flex flex-wrap gap-1 text-xs">
+      <nav class="flex items-stretch self-stretch text-xs">
         <template x-for="tab in tabs" :key="tab.id">
           <button
             type="button"
             @click="navigateToTab(tab.id)"
-            :class="activeTab === tab.id ? 'bg-white text-slate-900' : 'text-slate-300 hover:text-white hover:bg-slate-700'"
-            class="px-3 py-1.5 rounded-lg font-medium transition"
+            :class="activeTab === tab.id ? 'border-white text-white' : 'border-transparent text-white/80 hover:text-white'"
+            class="h-14 px-3 flex items-center font-medium transition border-b-2"
             x-text="tab.label"
           ></button>
         </template>
       </nav>
-      <button @click="logout" class="text-slate-400 hover:text-white text-xs transition">Déconnexion</button>
+      <button @click="logout" class="h-14 px-3 flex items-center text-white/80 hover:text-white text-xs transition">Déconnexion</button>
     </div>
   </header>
 
@@ -116,15 +108,15 @@
 
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <template x-for="q in quotas" :key="q.offer.code">
-          <div class="bg-white rounded-xl border shadow-sm overflow-hidden"
-            :class="q.blocked ? 'border-red-200' : 'border-slate-200'">
+          <div class="bg-white rounded-md border shadow-sm overflow-hidden"
+            :class="q.blocked ? 'border-red-200' : 'border-shell-border'">
 
             <!-- Offre header -->
             <div class="px-4 py-3 border-b flex items-center justify-between"
               :class="q.blocked ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-slate-100'">
               <div class="flex items-center gap-2 min-w-0">
                 <span
-                  class="inline-block h-3.5 w-3.5 rounded-full border border-slate-300/80 shrink-0 shadow-sm"
+                  class="inline-block h-3.5 w-3.5 rounded-full border border-shell-border/80 shrink-0 shadow-sm"
                   :style="{ backgroundColor: resolveOfferColor(q.offer.id ?? q.offer.code, q.offer.color) }"
                   :title="q.offer.color ? q.offer.color : 'Couleur pastel (défaut)'"
                 ></span>
@@ -153,7 +145,7 @@
                   type="number" min="0" step="1"
                   :placeholder="'Défaut: ' + q.offer.default_quota"
                   x-model.number="q._edit.fixedQuota"
-                  class="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums"
+                  class="w-full border border-shell-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums"
                 >
               </div>
 
@@ -164,14 +156,14 @@
                   <input type="number" min="0" step="1"
                     x-model.number="q._edit.presentCount"
                     placeholder="0"
-                    class="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums">
+                    class="w-full border border-shell-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums">
                 </div>
                 <div>
                   <label class="block text-xs text-slate-500 mb-1">% autorisé</label>
                   <input type="number" min="0" max="100" step="1"
                     x-model.number="q._edit.allowedPercent"
                     placeholder="0"
-                    class="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums">
+                    class="w-full border border-shell-border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums">
                 </div>
               </div>
 
@@ -188,7 +180,7 @@
               <button
                 @click="saveQuota(q)"
                 :disabled="q._saving"
-                class="w-full bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg py-2 transition"
+                class="w-full bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold rounded-lg py-2 transition"
               >
                 <span x-show="q._saving">Enregistrement…</span>
                 <span x-show="!q._saving">Enregistrer</span>
@@ -214,8 +206,8 @@
             :disabled="maintenanceLoading"
             :class="maintenanceMode
               ? 'bg-red-600 hover:bg-red-700 text-white ring-2 ring-red-400 ring-offset-1 animate-pulse'
-              : 'bg-slate-200 hover:bg-red-100 text-slate-700 hover:text-red-700 border border-slate-300'"
-            class="flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition-all select-none disabled:opacity-50"
+              : 'bg-slate-200 hover:bg-red-100 text-slate-700 hover:text-red-700 border border-shell-border'"
+            class="flex items-center gap-2 rounded-md px-4 py-2 text-xs font-bold transition-all select-none disabled:opacity-50"
           >
             <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
@@ -226,7 +218,7 @@
         </div>
       </div>
 
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="bg-white rounded-md border border-shell-border shadow-sm overflow-hidden">
         <table class="w-full text-sm" x-show="livePauses.length > 0">
           <thead>
             <tr class="text-xs text-slate-400 uppercase tracking-wider border-b border-slate-100 bg-slate-50">
@@ -243,7 +235,7 @@
                 <td class="px-5 py-3 font-medium text-slate-700" x-text="p.agentName"></td>
                 <td class="px-5 py-3">
                   <span
-                    class="inline-block text-slate-900 text-xs font-mono rounded px-1.5 py-0.5 border border-slate-200"
+                    class="inline-block text-slate-900 text-xs font-mono rounded px-1.5 py-0.5 border border-shell-border"
                     :style="{ backgroundColor: resolveOfferColorByCode(p.offerCode) }"
                     x-text="p.offerCode"></span>
                 </td>
@@ -289,7 +281,7 @@
         <div class="flex flex-wrap gap-2 items-center text-xs">
           <!-- Filtre offre -->
           <select x-model="histFilter.offerCode" @change="loadHistory(1)"
-            class="border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600 focus:outline-none focus:ring-1 focus:ring-slate-400">
+            class="border border-shell-border rounded-lg px-2 py-1.5 bg-white text-slate-600 focus:outline-none focus:ring-1 focus:ring-slate-400">
             <option value="">Toutes les offres</option>
             <template x-for="o in histOffers" :key="o.code">
               <option :value="o.code" x-text="o.label"></option>
@@ -297,16 +289,16 @@
           </select>
           <!-- Dates -->
           <input type="date" x-model="histFilter.from" @change="loadHistory(1)"
-            class="border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600 focus:outline-none focus:ring-1 focus:ring-slate-400">
+            class="border border-shell-border rounded-lg px-2 py-1.5 bg-white text-slate-600 focus:outline-none focus:ring-1 focus:ring-slate-400">
           <input type="date" x-model="histFilter.to" @change="loadHistory(1)"
-            class="border border-slate-200 rounded-lg px-2 py-1.5 bg-white text-slate-600 focus:outline-none focus:ring-1 focus:ring-slate-400">
-          <button @click="loadHistory(1)" class="bg-slate-900 hover:bg-slate-700 text-white rounded-lg px-3 py-1.5 font-medium transition">
+            class="border border-shell-border rounded-lg px-2 py-1.5 bg-white text-slate-600 focus:outline-none focus:ring-1 focus:ring-slate-400">
+          <button @click="loadHistory(1)" class="bg-brand-500 hover:bg-brand-600 text-white rounded-lg px-3 py-1.5 font-medium transition">
             Filtrer
           </button>
         </div>
       </div>
 
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="bg-white rounded-md border border-shell-border shadow-sm overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full text-sm" x-show="histRows.length > 0">
             <thead>
@@ -365,12 +357,12 @@
           <div class="flex gap-2">
             <button @click="loadHistory(histPagination.page - 1)"
               :disabled="histPagination.page <= 1"
-              class="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-30 transition">
+              class="px-3 py-1 rounded-lg border border-shell-border hover:bg-slate-50 disabled:opacity-30 transition">
               ← Préc.
             </button>
             <button @click="loadHistory(histPagination.page + 1)"
               :disabled="histPagination.page >= histPagination.pages"
-              class="px-3 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-30 transition">
+              class="px-3 py-1 rounded-lg border border-shell-border hover:bg-slate-50 disabled:opacity-30 transition">
               Suiv. →
             </button>
           </div>
@@ -385,38 +377,38 @@
         <button
           @click="loadDirectory(true)"
           :disabled="directoryLoading"
-          class="text-xs border border-slate-200 bg-white hover:bg-slate-50 rounded-lg px-3 py-1.5 transition disabled:opacity-40"
+          class="text-xs border border-shell-border bg-white hover:bg-slate-50 rounded-lg px-3 py-1.5 transition disabled:opacity-40"
         >
           <span x-show="directoryLoading">Chargement…</span>
           <span x-show="!directoryLoading">Rafraîchir</span>
         </button>
       </div>
 
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm p-4 mb-4">
+      <div class="bg-white rounded-md border border-shell-border shadow-sm p-4 mb-4">
         <h3 class="text-sm font-semibold text-slate-700 mb-3">Ajouter un agent</h3>
         <form @submit.prevent="createDirectoryAgent" class="grid grid-cols-1 md:grid-cols-4 gap-3">
           <input
             type="text"
             x-model="directoryForm.matricule"
             placeholder="Matricule"
-            class="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+            class="border border-shell-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
           >
           <input
             type="text"
             x-model="directoryForm.nom"
             placeholder="Nom"
-            class="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+            class="border border-shell-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
           >
           <input
             type="text"
             x-model="directoryForm.prenom"
             placeholder="Prénom"
-            class="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+            class="border border-shell-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
           >
           <button
             type="submit"
             :disabled="directorySaving"
-            class="bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
+            class="bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
           >
             <span x-show="directorySaving">Ajout…</span>
             <span x-show="!directorySaving">Ajouter l'agent</span>
@@ -426,7 +418,7 @@
         <p x-show="directoryMsg" x-cloak class="text-xs text-green-600 mt-2" x-text="directoryMsg"></p>
       </div>
 
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div class="bg-white rounded-md border border-shell-border shadow-sm overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full text-sm" x-show="directoryRows.length > 0">
             <thead>
@@ -463,7 +455,7 @@
                         x-show="agent.isOnline"
                         @click="releaseDirectorySession(agent)"
                         :disabled="agent._releasing"
-                        class="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition"
+                        class="inline-flex items-center gap-1 rounded-md border border-shell-border bg-white px-2 py-1 text-xs text-slate-600 hover:bg-slate-50 disabled:opacity-40 transition"
                         title="Libérer la session"
                       >
                         <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -503,7 +495,7 @@
     <div x-show="activeTab === 'settings'" x-cloak>
       <h2 class="text-sm font-bold text-slate-700 mb-4">Paramètres système</h2>
 
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm divide-y divide-slate-100">
+      <div class="bg-white rounded-md border border-shell-border shadow-sm divide-y divide-slate-100">
 
         <!-- Rétention historique -->
         <div class="px-5 py-5">
@@ -515,13 +507,13 @@
             <input
               type="number" min="1" step="1"
               x-model.number="settings.historyRetentionDays"
-              class="w-28 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums"
+              class="w-28 border border-shell-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums"
             >
             <span class="text-sm text-slate-500">jours</span>
             <button
               @click="saveRetention"
               :disabled="settingsSaving"
-              class="ml-auto bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
+              class="ml-auto bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
             >
               <span x-show="settingsSaving">Enregistrement…</span>
               <span x-show="!settingsSaving">Enregistrer</span>
@@ -543,13 +535,13 @@
             <input
               type="number" min="1" max="120" step="1"
               x-model.number="settings.maxPauseMinutes"
-              class="w-28 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums"
+              class="w-28 border border-shell-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums"
             >
             <span class="text-sm text-slate-500">minutes</span>
             <button
               @click="saveMaxPause"
               :disabled="maxPauseSaving"
-              class="ml-auto bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
+              class="ml-auto bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
             >
               <span x-show="maxPauseSaving">Enregistrement…</span>
               <span x-show="!maxPauseSaving">Enregistrer</span>
@@ -568,7 +560,7 @@
             <button
               @click="startCreateOffer"
               type="button"
-              class="text-xs border border-slate-200 bg-white hover:bg-slate-50 rounded-lg px-3 py-1.5 transition"
+              class="text-xs border border-shell-border bg-white hover:bg-slate-50 rounded-lg px-3 py-1.5 transition"
             >
               Nouvelle offre
             </button>
@@ -578,7 +570,7 @@
           <div
             x-show="expandedOfferCode === '__new__'"
             x-cloak
-            class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4"
+            class="mb-4 rounded-lg border border-shell-border bg-slate-50 p-4"
           >
             <div class="flex items-center justify-between mb-3">
               <span class="text-sm font-medium text-slate-800">Nouvelle offre</span>
@@ -592,7 +584,7 @@
                 <input
                   type="text"
                   x-model="offerForm.code"
-                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-slate-400"
+                  class="w-full border border-shell-border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-slate-400"
                 >
               </div>
               <div>
@@ -600,7 +592,7 @@
                 <input
                   type="text"
                   x-model="offerForm.label"
-                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                  class="w-full border border-shell-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
                 >
               </div>
               <div>
@@ -610,7 +602,7 @@
                   min="0"
                   step="1"
                   x-model.number="offerForm.default_quota"
-                  class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-slate-400"
+                  class="w-full border border-shell-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-slate-400"
                 >
               </div>
               <div>
@@ -620,12 +612,12 @@
                     type="color"
                     x-model="offerForm.color"
                     :disabled="offerForm.useDefaultColor"
-                    class="h-10 w-14 border border-slate-300 rounded-md bg-white disabled:opacity-40"
+                    class="h-10 w-14 border border-shell-border rounded-md bg-white disabled:opacity-40"
                   >
                   <button
                     type="button"
                     @click="resetOfferColor"
-                    class="text-xs border border-slate-200 bg-white hover:bg-slate-50 rounded-lg px-2.5 py-1.5 transition"
+                    class="text-xs border border-shell-border bg-white hover:bg-slate-50 rounded-lg px-2.5 py-1.5 transition"
                   >
                     Réinitialiser la couleur
                   </button>
@@ -639,7 +631,7 @@
                 <button
                   type="submit"
                   :disabled="offerSaving"
-                  class="bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
+                  class="bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
                 >
                   <span x-show="offerSaving">Enregistrement…</span>
                   <span x-show="!offerSaving">Créer offre</span>
@@ -650,7 +642,7 @@
 
           <div class="space-y-2 mb-2">
             <template x-for="offer in offersAdminRows" :key="offer.code">
-              <div class="w-full rounded-lg border border-slate-200 bg-white overflow-hidden transition">
+              <div class="w-full rounded-lg border border-shell-border bg-white overflow-hidden transition">
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-3 py-2.5">
                   <div class="min-w-0">
                     <div class="text-xs font-mono text-slate-600" x-text="offer.code"></div>
@@ -662,7 +654,7 @@
                       <span class="text-xs rounded-full px-2 py-0.5 bg-slate-100 text-slate-600"
                         x-text="'Quota défaut: ' + offer.default_quota"></span>
                       <span
-                        class="inline-block h-3 w-3 rounded-full border border-slate-300 shrink-0 shadow-sm"
+                        class="inline-block h-3 w-3 rounded-full border border-shell-border shrink-0 shadow-sm"
                         :style="{ backgroundColor: resolveOfferColor(offer.id ?? offer.code, offer.color) }"
                         :title="offer.color ? offer.color : 'Couleur pastel (défaut)'"
                       ></span>
@@ -672,7 +664,7 @@
                     <button
                       type="button"
                       @click="openEditOffer(offer)"
-                      :class="expandedOfferCode === offer.code ? 'bg-slate-200 border-slate-300' : 'bg-white border-slate-200'"
+                      :class="expandedOfferCode === offer.code ? 'bg-slate-200 border-shell-border' : 'bg-white border-shell-border'"
                       class="text-xs rounded-lg px-2.5 py-1.5 border hover:bg-slate-50 transition"
                     >
                       Modifier
@@ -716,7 +708,7 @@
                         type="text"
                         x-model="offerForm.code"
                         disabled
-                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono bg-slate-100 cursor-not-allowed"
+                        class="w-full border border-shell-border rounded-lg px-3 py-2 text-sm font-mono bg-slate-100 cursor-not-allowed"
                       >
                     </div>
                     <div>
@@ -724,7 +716,7 @@
                       <input
                         type="text"
                         x-model="offerForm.label"
-                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                        class="w-full border border-shell-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
                       >
                     </div>
                     <div>
@@ -734,7 +726,7 @@
                         min="0"
                         step="1"
                         x-model.number="offerForm.default_quota"
-                        class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-slate-400"
+                        class="w-full border border-shell-border rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-slate-400"
                       >
                     </div>
                     <div>
@@ -744,12 +736,12 @@
                           type="color"
                           x-model="offerForm.color"
                           :disabled="offerForm.useDefaultColor"
-                          class="h-10 w-14 border border-slate-300 rounded-md bg-white disabled:opacity-40"
+                          class="h-10 w-14 border border-shell-border rounded-md bg-white disabled:opacity-40"
                         >
                         <button
                           type="button"
                           @click="resetOfferColor"
-                          class="text-xs border border-slate-200 bg-white hover:bg-slate-50 rounded-lg px-2.5 py-1.5 transition"
+                          class="text-xs border border-shell-border bg-white hover:bg-slate-50 rounded-lg px-2.5 py-1.5 transition"
                         >
                           Réinitialiser la couleur
                         </button>
@@ -763,7 +755,7 @@
                       <button
                         type="submit"
                         :disabled="offerSaving"
-                        class="bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
+                        class="bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
                       >
                         <span x-show="offerSaving">Enregistrement…</span>
                         <span x-show="!offerSaving">Mettre à jour offre</span>
@@ -800,13 +792,13 @@
               maxlength="6"
               x-model="supervisorPinInput"
               :placeholder="supervisorPinConfigured ? 'Code configuré' : 'Nouveau code PIN'"
-              class="w-full max-w-xs border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums"
+              class="w-full max-w-xs border border-shell-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums"
             >
             <button
               type="button"
               @click="saveSupervisorPin()"
               :disabled="supervisorPinSaving"
-              class="bg-slate-900 hover:bg-slate-700 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
+              class="bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold rounded-lg px-4 py-2 transition"
             >
               <span x-show="supervisorPinSaving">Enregistrement…</span>
               <span x-show="!supervisorPinSaving">Enregistrer le code</span>
@@ -827,7 +819,7 @@
       </div>
 
       <!-- Mises à jour OTA (vérification + paramètres dépôt) -->
-      <div class="bg-white rounded-xl border border-slate-200 shadow-sm mt-6">
+      <div class="bg-white rounded-md border border-shell-border shadow-sm mt-6">
         <div class="px-5 py-4 border-b border-slate-100">
           <h3 class="text-sm font-semibold text-slate-700">Vérification et installation</h3>
           <p class="text-xs text-slate-500 mt-0.5">Contrôle de version par rapport à GitHub, téléchargement de la release et application sur ce serveur.</p>
@@ -915,7 +907,7 @@
                 type="text"
                 autocomplete="off"
                 x-model="settings.github_owner"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                class="w-full border border-shell-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
               >
             </div>
             <div>
@@ -924,7 +916,7 @@
                 type="text"
                 autocomplete="off"
                 x-model="settings.github_repo"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                class="w-full border border-shell-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
               >
             </div>
             <div class="md:col-span-2">
@@ -934,7 +926,7 @@
                 autocomplete="new-password"
                 x-model="githubTokenInput"
                 :placeholder="githubTokenConfigured ? 'Configuré' : 'Optionnel'"
-                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
+                class="w-full border border-shell-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
               >
               <p class="mt-1 text-xs text-slate-400">Optionnel — pour dépôts privés. Laissez vide pour conserver le token actuel ; utilisez « Supprimer le token » pour l’effacer.</p>
             </div>
@@ -953,7 +945,7 @@
               type="button"
               @click="saveGithubOtaClearToken()"
               :disabled="githubOtaSaving || !githubTokenConfigured"
-              class="text-xs border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 rounded-lg px-3 py-2 transition"
+              class="text-xs border border-shell-border bg-white hover:bg-slate-50 disabled:opacity-40 rounded-lg px-3 py-2 transition"
             >
               Supprimer le token
             </button>
@@ -972,7 +964,7 @@
       <h2 class="text-sm font-bold text-slate-700 mb-4">À propos</h2>
       <div class="space-y-4">
 
-        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
           <h3 class="text-sm font-semibold text-slate-800 mb-2">À quoi ça sert</h3>
           <p class="text-sm text-slate-600">
             Flowi montre qui est en pause, dans quelle équipe (offre), et empêche de dépasser le nombre de pauses autorisées.
@@ -980,7 +972,7 @@
           </p>
         </section>
 
-        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
           <h3 class="text-sm font-semibold text-slate-800 mb-2">Écran agent</h3>
           <p class="text-sm text-slate-600 mb-3">Ce que voit l’agent sur son poste, pas cette console.</p>
           <dl class="space-y-3">
@@ -999,7 +991,7 @@
           </dl>
         </section>
 
-        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
           <h3 class="text-sm font-semibold text-slate-800 mb-2">Onglet Live</h3>
           <p class="text-sm text-slate-600 mb-3">Tableau des pauses <span class="font-medium text-slate-800">en cours</span> : agent, offre, heure de départ, temps écoulé. Le chrono passe orange puis rouge selon la durée.</p>
           <dl class="space-y-3">
@@ -1014,7 +1006,7 @@
           </dl>
         </section>
 
-        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
           <h3 class="text-sm font-semibold text-slate-800 mb-2">Onglet Quotas</h3>
           <p class="text-sm text-slate-600 mb-3">Une carte par offre. Le chiffre « en pause / quota » indique combien de personnes sont parties par rapport au plafond. Badge <span class="font-medium text-slate-800">Bloqué</span> : plus de départ sur cette offre.</p>
           <p class="text-sm text-slate-600 mb-3">Règle : <span class="font-medium text-slate-800">quota fixe</span> s’il est renseigné, sinon <span class="font-medium text-slate-800">présents × % autorisé</span>, sinon le <span class="font-medium text-slate-800">quota par défaut</span> de l’offre.</p>
@@ -1042,7 +1034,7 @@
           </dl>
         </section>
 
-        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
           <h3 class="text-sm font-semibold text-slate-800 mb-2">Onglet Historique</h3>
           <p class="text-sm text-slate-600 mb-3">Pauses <span class="font-medium text-slate-800">terminées</span>, pas celles en cours.</p>
           <dl class="space-y-3">
@@ -1069,7 +1061,7 @@
           </dl>
         </section>
 
-        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
           <h3 class="text-sm font-semibold text-slate-800 mb-2">Onglet Annuaire</h3>
           <p class="text-sm text-slate-600 mb-3">Qui a le droit d’utiliser l’appli, et qui est connecté en ce moment.</p>
           <dl class="space-y-3">
@@ -1100,7 +1092,7 @@
           </dl>
         </section>
 
-        <section class="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
           <h3 class="text-sm font-semibold text-slate-800 mb-2">Onglet Paramètres</h3>
           <dl class="space-y-3">
             <div>
@@ -1146,7 +1138,7 @@
           </dl>
         </section>
 
-        <section class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <section class="bg-white rounded-md border border-shell-border shadow-sm overflow-hidden">
           <div class="px-5 py-4 border-b border-slate-100">
             <h3 class="text-sm font-semibold text-slate-800">Versions en cours</h3>
             <p class="text-xs text-slate-500 mt-0.5">Composants réellement installés sur ce serveur.</p>
