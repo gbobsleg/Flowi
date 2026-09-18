@@ -216,6 +216,119 @@ function aggregateDetails(details, weekdays, skipHolidays) {
   return rows;
 }
 
+function computeUnmapped(activityRows, mappingRows) {
+  const mapped = new Map();
+  for (const row of mappingRows || []) {
+    const key = canonicalWfmLabel(row.label);
+    if (!key) continue;
+    if (!mapped.has(key) || (mapped.get(key) == null && row.offer_id != null)) {
+      mapped.set(key, row.offer_id);
+    }
+  }
+  const labels = [...new Set(activityRows.map((r) => r.wfmLabel))].sort();
+  return labels.filter((label) => !mapped.has(label));
+}
+
+function allowedFromHeadcountLocal(headcount, percent) {
+  const n = Number(headcount);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  const p = Number(percent);
+  if (!Number.isFinite(p) || p < 0) return 0;
+  return Math.max(1, Math.floor((n * p) / 100));
+}
+
+function offerIdByCanon(mappingRows) {
+  const map = new Map();
+  for (const row of mappingRows || []) {
+    if (row.offer_id == null) continue;
+    const key = canonicalWfmLabel(row.label);
+    if (!key) continue;
+    const existing = map.get(key);
+    if (existing == null || row.offer_id < existing) map.set(key, row.offer_id);
+  }
+  return map;
+}
+
+function normalizeOfferMeta(o) {
+  const percentRaw = o.allowedPercent ?? o.allowed_percent;
+  const fixedRaw = o.fixedQuota ?? o.fixed_quota;
+  return {
+    offerId: o.offerId ?? o.id,
+    offerCode: o.offerCode ?? o.code,
+    label: o.label,
+    color: o.color ?? null,
+    isActive: o.isActive === true || o.is_active === true,
+    defaultQuota: Number(o.defaultQuota ?? o.default_quota ?? 0),
+    allowedPercent: percentRaw == null || percentRaw === '' ? null : Number(percentRaw),
+    fixedQuota: fixedRaw == null || fixedRaw === '' ? null : Number(fixedRaw),
+    slots: [],
+  };
+}
+
+/** Projection mémoire planning_slots : { [YYYY-MM-DD]: offers[] } même forme que GET /planning/slots. */
+function slotsByDay(activityRows, mappingRows, offers) {
+  const metas = (offers || []).map(normalizeOfferMeta);
+  const labelToOfferId = offerIdByCanon(mappingRows);
+  const days = [...new Set((activityRows || []).map((r) => r.day))].sort();
+  const sums = new Map();
+  for (const row of activityRows || []) {
+    const offerId = labelToOfferId.get(canonicalWfmLabel(row.wfmLabel));
+    if (offerId == null) continue;
+    if (!sums.has(row.day)) sums.set(row.day, new Map());
+    const byOffer = sums.get(row.day);
+    if (!byOffer.has(offerId)) byOffer.set(offerId, new Map());
+    const bySlot = byOffer.get(offerId);
+    bySlot.set(row.slotMinutes, (bySlot.get(row.slotMinutes) || 0) + Number(row.headcount));
+  }
+
+  const offersByDay = {};
+  for (const day of days) {
+    const list = metas.map((o) => ({ ...o, slots: [] }));
+    const byId = new Map(list.map((o) => [o.offerId, o]));
+    const byOffer = sums.get(day);
+    if (byOffer) {
+      for (const [offerId, bySlot] of byOffer) {
+        const offer = byId.get(offerId);
+        if (!offer) continue;
+        const minutes = [...bySlot.keys()].sort((a, b) => a - b);
+        for (const slotMinutes of minutes) {
+          const headcount = bySlot.get(slotMinutes);
+          const allowed = offer.allowedPercent == null
+            ? offer.defaultQuota
+            : allowedFromHeadcountLocal(headcount, offer.allowedPercent);
+          offer.slots.push({ slotMinutes, headcount, allowed });
+        }
+      }
+    }
+    offersByDay[day] = list;
+  }
+  return offersByDay;
+}
+
+async function analyseGenesysBuffer(buffer, client) {
+  const { details, daysInFile } = parseGenesysCsv(buffer);
+  if (details.length === 0) {
+    throw new GenesysImportError('Aucune ligne de détail (heures début/fin) dans le fichier', 'FORMAT');
+  }
+  const { weekdays, skipHolidays } = await loadImportSettings(client);
+  const activityRows = aggregateDetails(details, weekdays, skipHolidays);
+  const mappingRes = await client.query(
+    'SELECT label, offer_id FROM wfm_activity_mappings'
+  );
+  return {
+    details,
+    daysInFile,
+    activityRows,
+    mappingRows: mappingRes.rows,
+    summary: {
+      unmapped: computeUnmapped(activityRows, mappingRes.rows),
+      detailRows: details.length,
+      activityRows: activityRows.length,
+      days: daysInFile,
+    },
+  };
+}
+
 async function insertActivities(client, rows) {
   const CHUNK = 200;
   for (let i = 0; i < rows.length; i += CHUNK) {
@@ -235,14 +348,9 @@ async function insertActivities(client, rows) {
 }
 
 async function importGenesysBuffer(buffer) {
-  const { details, daysInFile } = parseGenesysCsv(buffer);
-  if (details.length === 0) {
-    throw new GenesysImportError('Aucune ligne de détail (heures début/fin) dans le fichier', 'FORMAT');
-  }
-
   return db.withTransaction(async (client) => {
-    const { weekdays, skipHolidays } = await loadImportSettings(client);
-    const activityRows = aggregateDetails(details, weekdays, skipHolidays);
+    const analysed = await analyseGenesysBuffer(buffer, client);
+    const { daysInFile, activityRows, summary } = analysed;
 
     if (daysInFile.length > 0) {
       await client.query(
@@ -257,34 +365,13 @@ async function importGenesysBuffer(buffer) {
 
     await db.rebuildPlanningSlots(client, daysInFile.length ? daysInFile : null);
 
-    const mappingRes = await client.query(
-      'SELECT label, offer_id FROM wfm_activity_mappings'
-    );
-    const mapped = new Map();
-    for (const row of mappingRes.rows) {
-      const key = canonicalWfmLabel(row.label);
-      if (!key) continue;
-      if (!mapped.has(key) || (mapped.get(key) == null && row.offer_id != null)) {
-        mapped.set(key, row.offer_id);
-      }
-    }
-    const labels = [...new Set(activityRows.map((r) => r.wfmLabel))].sort();
-    const unmapped = labels.filter((label) => {
-      if (!mapped.has(label)) return true;
-      return mapped.get(label) == null;
-    });
-
-    return {
-      unmapped,
-      detailRows: details.length,
-      activityRows: activityRows.length,
-      days: daysInFile,
-    };
+    return summary;
   });
 }
 
 module.exports = {
   GenesysImportError,
+  analyseGenesysBuffer,
   importGenesysBuffer,
   parseGenesysCsv,
   parseHmToMinutes,
@@ -292,4 +379,6 @@ module.exports = {
   aggregateDetails,
   dayIncluded,
   canonicalWfmLabel,
+  computeUnmapped,
+  slotsByDay,
 };

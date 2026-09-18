@@ -9,6 +9,8 @@ const {
   intersectingSlots,
   aggregateDetails,
   canonicalWfmLabel,
+  computeUnmapped,
+  slotsByDay,
 } = require('../src/services/genesysPlanningImport');
 
 const FIXTURE = path.join(
@@ -133,5 +135,81 @@ describe('canonicalWfmLabel', () => {
       rows.some((r) => r.wfmLabel.includes('(')),
       false
     );
+  });
+});
+
+describe('computeUnmapped', () => {
+  it('ne liste que les libellés sans aucune ligne de mapping', () => {
+    const activityRows = [
+      { wfmLabel: 'CESU' },
+      { wfmLabel: 'ABSENCE PARTIELLE' },
+      { wfmLabel: 'INCONNU' },
+    ];
+    const mappingRows = [
+      { label: 'CESU', offer_id: 1 },
+      { label: 'ABSENCE PARTIELLE', offer_id: null },
+    ];
+    assert.deepEqual(computeUnmapped(activityRows, mappingRows), ['INCONNU']);
+  });
+});
+
+describe('slotsByDay', () => {
+  it('agrège deux libellés vers une offre, exclut l’ignoré, couvre deux jours', () => {
+    const activityRows = [
+      { day: '2026-10-06', wfmLabel: 'CESU', slotMinutes: 540, headcount: 2 },
+      { day: '2026-10-06', wfmLabel: 'CESU', slotMinutes: 555, headcount: 1 },
+      { day: '2026-10-06', wfmLabel: 'ABSENCE PARTIELLE', slotMinutes: 540, headcount: 9 },
+      { day: '2026-10-06', wfmLabel: 'ACCUR', slotMinutes: 540, headcount: 1 },
+      { day: '2026-10-07', wfmLabel: 'CESU', slotMinutes: 540, headcount: 3 },
+      { day: '2026-10-07', wfmLabel: 'ACCUR', slotMinutes: 540, headcount: 1 },
+      { day: '2026-10-08', wfmLabel: 'ABSENCE PARTIELLE', slotMinutes: 540, headcount: 5 },
+    ];
+    const mappingRows = [
+      { label: 'CESU', offer_id: 10 },
+      { label: 'ACCUR', offer_id: 10 },
+      { label: 'ABSENCE PARTIELLE', offer_id: null },
+    ];
+    const offers = [
+      {
+        offerId: 10,
+        offerCode: 'A',
+        label: 'Offre A',
+        isActive: true,
+        defaultQuota: 2,
+        allowedPercent: 20,
+        color: null,
+        fixedQuota: null,
+      },
+      {
+        offerId: 11,
+        offerCode: 'B',
+        label: 'Offre B',
+        isActive: true,
+        defaultQuota: 4,
+        allowedPercent: null,
+        color: null,
+        fixedQuota: null,
+      },
+    ];
+    const byDay = slotsByDay(activityRows, mappingRows, offers);
+    assert.deepEqual(Object.keys(byDay), ['2026-10-06', '2026-10-07', '2026-10-08']);
+
+    const day1A = byDay['2026-10-06'].find((o) => o.offerCode === 'A');
+    assert.deepEqual(day1A.slots, [
+      { slotMinutes: 540, headcount: 3, allowed: 1 },
+      { slotMinutes: 555, headcount: 1, allowed: 1 },
+    ]);
+    const day1B = byDay['2026-10-06'].find((o) => o.offerCode === 'B');
+    assert.deepEqual(day1B.slots, []);
+
+    const day2A = byDay['2026-10-07'].find((o) => o.offerCode === 'A');
+    assert.deepEqual(day2A.slots, [
+      { slotMinutes: 540, headcount: 4, allowed: 1 },
+    ]);
+
+    const day3A = byDay['2026-10-08'].find((o) => o.offerCode === 'A');
+    const day3B = byDay['2026-10-08'].find((o) => o.offerCode === 'B');
+    assert.deepEqual(day3A.slots, []);
+    assert.deepEqual(day3B.slots, []);
   });
 });

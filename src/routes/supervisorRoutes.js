@@ -5,7 +5,7 @@ const db      = require('../db');
 const { createSession, validatePin, requireSupervisor } = require('../middlewares/supervisorAuth');
 const { effectiveQuota, countActivePauses, emitOfferUpdate, emitQuotasUpdate, allowedFromHeadcount, getParisClock } = require('./agentRoutes');
 const { Errors, apiError, isValidOfferCode, newOfferCode, isPositiveInt, isPercent } = require('../middlewares/validate');
-const { importGenesysBuffer, GenesysImportError, canonicalWfmLabel } = require('../services/genesysPlanningImport');
+const { importGenesysBuffer, analyseGenesysBuffer, GenesysImportError, canonicalWfmLabel, slotsByDay } = require('../services/genesysPlanningImport');
 const { pauseWindowStatus } = require('../lib/pauseWindows');
 
 function nowIso() { return new Date().toISOString(); }
@@ -635,11 +635,7 @@ router.get('/planning/mapping', requireSupervisor, async (req, res) => {
   }
 });
 
-/**
- * POST /api/supervisor/planning/import
- * multipart field: file
- */
-router.post('/planning/import', requireSupervisor, (req, res, next) => {
+function handlePlanningUpload(req, res, next) {
   uploadPlanning(req, res, (err) => {
     if (!err) return next();
     if (err.code === 'LIMIT_FILE_SIZE') {
@@ -647,7 +643,54 @@ router.post('/planning/import', requireSupervisor, (req, res, next) => {
     }
     return Errors.invalidType(res, 'file', 'fichier CSV');
   });
-}, async (req, res) => {
+}
+
+/**
+ * POST /api/supervisor/planning/import/preview
+ * Parse le CSV sans écrire. multipart field: file
+ */
+router.post('/planning/import/preview', requireSupervisor, handlePlanningUpload, async (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer) return Errors.missingField(res, 'file');
+    const payload = await db.withTransaction(async (client) => {
+      const analysed = await analyseGenesysBuffer(req.file.buffer, client);
+      const offerRes = await client.query(
+        `SELECT o.id, o.code, o.label, o.default_quota, o.color, o.is_active,
+                qr.allowed_percent, qr.fixed_quota
+         FROM offers o
+         LEFT JOIN quota_rules qr ON qr.offer_id = o.id
+         WHERE o.purge_requested_at IS NULL
+         ORDER BY o.code`
+      );
+      const offers = offerRes.rows.map((row) => ({
+        offerId: row.id,
+        offerCode: row.code,
+        label: row.label,
+        color: row.color,
+        isActive: row.is_active === true,
+        defaultQuota: row.default_quota,
+        allowedPercent: row.allowed_percent == null ? null : Number(row.allowed_percent),
+        fixedQuota: row.fixed_quota == null ? null : Number(row.fixed_quota),
+      }));
+      return {
+        ...analysed.summary,
+        offersByDay: slotsByDay(analysed.activityRows, analysed.mappingRows, offers),
+      };
+    });
+    res.json(payload);
+  } catch (err) {
+    if (err instanceof GenesysImportError || err.code === 'FORMAT') {
+      return apiError(res, 400, err.code || 'FORMAT', err.message);
+    }
+    Errors.internal(res, err);
+  }
+});
+
+/**
+ * POST /api/supervisor/planning/import
+ * multipart field: file
+ */
+router.post('/planning/import', requireSupervisor, handlePlanningUpload, async (req, res) => {
   try {
     if (!req.file || !req.file.buffer) return Errors.missingField(res, 'file');
     const result = await importGenesysBuffer(req.file.buffer);
@@ -1131,6 +1174,43 @@ router.put('/settings/pause-windows', requireSupervisor, async (req, res) => {
     }
 
     res.json({ windows: normalized });
+  } catch (err) {
+    Errors.internal(res, err);
+  }
+});
+
+function parseImportWeekdays(raw) {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const set = new Set();
+  for (const n of raw) {
+    const v = Number(n);
+    if (!Number.isInteger(v) || v < 1 || v > 7) return null;
+    set.add(v);
+  }
+  if (set.size === 0) return null;
+  return [...set].sort((a, b) => a - b);
+}
+
+/**
+ * PUT /api/supervisor/settings/planning-import-days
+ * Body: { weekdays: [1-7], skipFrenchHolidays: boolean }
+ * UPSERT uniquement des deux clés ; n’écrase pas pause_windows ni le reste.
+ */
+router.put('/settings/planning-import-days', requireSupervisor, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const weekdays = parseImportWeekdays(body.weekdays);
+    if (!weekdays) {
+      return Errors.invalidType(res, 'weekdays', 'tableau d’entiers 1–7, au moins un jour');
+    }
+    if (typeof body.skipFrenchHolidays !== 'boolean') {
+      return Errors.invalidType(res, 'skipFrenchHolidays', 'booléen');
+    }
+
+    await db.query(UPSERT_SETTING, ['planning_import_weekdays', JSON.stringify(weekdays)]);
+    await db.query(UPSERT_SETTING, ['planning_skip_french_holidays', body.skipFrenchHolidays ? '1' : '0']);
+
+    res.json({ weekdays, skipFrenchHolidays: body.skipFrenchHolidays });
   } catch (err) {
     Errors.internal(res, err);
   }

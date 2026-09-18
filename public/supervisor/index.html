@@ -73,13 +73,13 @@
 <div x-show="isAuth" x-cloak class="min-h-screen flex flex-col">
 
   <!-- Header -->
-  <header class="bg-brand-500 text-white h-14 px-6 flex items-center justify-between sticky top-0 z-20">
+  <header class="bg-brand-500 text-white h-14 px-4 flex items-center justify-between sticky top-0 z-20">
     <div class="flex items-center gap-2">
       <span class="w-2 h-2 rounded-full shrink-0" :class="socketConnected ? 'bg-green-400' : 'bg-red-400 animate-pulse'"></span>
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" class="w-8 h-8 mr-2 shrink-0" fill="currentColor">
         <path d="M194,100c0,51.83-42.17,94-94,94S6,151.83,6,100,48.17,6,100,6c7.73,0,14,6.27,14,14s-6.27,14-14,14c-36.39,0-66,29.61-66,66s29.61,66,66,66,66-29.61,66-66c0-1.45.22-2.85.63-4.16.18-.58.41-1.14.66-1.68,1.44-3.13,4-5.64,7.17-7.01.11-.05.23-.09.35-.14,1.61-.64,3.36-1.01,5.2-1.01,6.28,0,11.6,4.14,13.37,9.84.41,1.32.63,2.71.63,4.16ZM72,64c-2.21,0-4,1.79-4,4v64c0,2.21,1.79,4,4,4h12c2.21,0,4-1.79,4-4v-64c0-2.21-1.79-4-4-4h-12ZM112,68v64c0,2.21,1.79,4,4,4h12c2.21,0,4-1.79,4-4v-64c0-2.21-1.79-4-4-4h-12c-2.21,0-4,1.79-4,4Z"/>
       </svg>
-      <span class="font-bold text-sm tracking-tight">Flowi - Superviseur</span>
+      <span class="font-semibold tracking-tight text-sm">Flowi - Superviseur</span>
     </div>
     <div class="flex items-center self-stretch">
       <!-- Tabs -->
@@ -109,9 +109,9 @@
               <h2 class="text-sm font-bold text-slate-800">Grille 15 minutes</h2>
               <p class="text-xs text-slate-500 mt-0.5">Consultation des effectifs planifiés et quotas autorisés par quart d’heure. Pas de temps réel.</p>
               <div class="flex flex-wrap items-center gap-3 mt-1.5 text-[11px]">
-                <span class="font-semibold text-slate-700">Planifiés</span>
+                <span class="font-medium text-slate-700">Planifiés</span>
                 <span class="text-slate-300">/</span>
-                <span class="font-semibold text-brand-700">Autorisés</span>
+                <span class="font-bold text-orange-600">Autorisés</span>
               </div>
             </div>
             <div class="flex flex-wrap items-end gap-2">
@@ -192,11 +192,11 @@
                         :class="planningCellClass(row, col.minutes)"
                       >
                         <span x-show="row.bySlot[col.minutes]">
-                          <span class="font-semibold text-slate-700" x-text="row.bySlot[col.minutes] ? row.bySlot[col.minutes].headcount : ''"></span>
+                          <span class="font-medium text-slate-700" x-text="row.bySlot[col.minutes] ? row.bySlot[col.minutes].headcount : ''"></span>
                           <span class="text-slate-300">/</span>
                           <span
-                            class="font-semibold"
-                            :class="planningOfferActive(row) ? 'text-brand-700' : 'text-slate-400'"
+                            class="font-bold"
+                            :class="planningOfferActive(row) ? 'text-orange-600' : 'text-slate-400'"
                             x-text="row.bySlot[col.minutes] ? row.bySlot[col.minutes].allowed : ''"
                           ></span>
                         </span>
@@ -967,58 +967,186 @@
       <!-- Sous-onglet Planning -->
       <div x-show="settingsSubtab === 'planning'" x-cloak class="space-y-4">
         <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
-          <h3 class="text-sm font-semibold text-slate-800 mb-3">Importer un planning</h3>
-          <form @submit.prevent="importPlanning" class="flex flex-wrap items-end gap-3">
-            <div class="min-w-0 flex-1">
-              <label class="block text-xs text-slate-500 mb-1">Fichier CSV (max 5 Mo)</label>
+          <h3 class="text-sm font-semibold text-slate-800 mb-1">Importer un planning</h3>
+          <p class="text-xs text-slate-500 mb-3">Rapport attendu : « Rapport sur le planning individuel » de Genesys WFM, au format CSV (max 5 Mo).</p>
+          <div class="mb-4">
+            <p class="text-xs font-medium text-slate-700 mb-2">Jours importés</p>
+            <div class="flex flex-wrap gap-x-3 gap-y-1.5">
+              <template x-for="d in planningImportWeekdayOptions" :key="'wd-' + d.value">
+                <label class="inline-flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    class="rounded border-slate-300"
+                    :checked="planningImportWeekdays.includes(d.value)"
+                    @change="setPlanningImportWeekday(d.value, $event.target.checked)"
+                  >
+                  <span x-text="d.label"></span>
+                </label>
+              </template>
+            </div>
+            <label class="mt-2 inline-flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer">
               <input
-                type="file"
-                accept=".csv,text/csv"
-                x-ref="planningFile"
-                class="block w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-brand-500 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-brand-600"
+                type="checkbox"
+                class="rounded border-slate-300"
+                :checked="planningSkipFrenchHolidays"
+                @change="setPlanningSkipFrenchHolidays($event.target.checked)"
               >
-            </div>
-            <button
-              type="submit"
-              :disabled="planningImporting"
-              class="bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold rounded-md px-4 py-2 transition"
+              Exclure les jours fériés français
+            </label>
+            <p x-show="planningImportDaysError" x-cloak class="mt-1 text-xs text-red-500" x-text="planningImportDaysError"></p>
+            <p class="mt-1 text-xs text-green-600 min-h-[1rem]" x-text="planningImportDaysMsg"></p>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Fichier CSV</label>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              x-ref="planningFile"
+              @change="onPlanningFileChange"
+              class="block w-full text-xs text-slate-600 file:mr-3 file:rounded-md file:border-0 file:bg-brand-500 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white hover:file:bg-brand-600"
             >
-              <span x-show="planningImporting">Importation…</span>
-              <span x-show="!planningImporting">Importer</span>
-            </button>
-          </form>
-          <p x-show="planningImportError" x-cloak class="mt-2 text-xs text-red-500" x-text="planningImportError"></p>
-          <div x-show="planningImportResult" x-cloak class="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-            <div class="bg-slate-50 rounded-md px-3 py-2 border border-shell-border">
-              <p class="text-slate-500">Période</p>
-              <p class="font-semibold text-slate-800" x-text="planningPeriodLabel()"></p>
+          </div>
+          <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <p
+              class="text-xs min-h-[1rem]"
+              :class="planningImportError ? 'text-red-500' : (planningImporting ? 'text-slate-500' : 'text-amber-700')"
+              x-text="planningImportError || (planningImporting ? 'Analyse…' : planningImportHint)"
+            ></p>
+            <template x-if="canRerunPlanningPreview">
+              <button
+                type="button"
+                @click="previewPlanning"
+                :disabled="planningImporting || planningApplying"
+                class="text-xs font-semibold text-brand-700 hover:text-brand-800 underline disabled:opacity-40"
+              >
+                Relancer l’analyse
+              </button>
+            </template>
+          </div>
+          <div x-show="planningImportResult && !planningImportApplied" x-cloak class="mt-3 space-y-2 text-xs">
+            <p class="font-semibold text-slate-800" x-text="planningReplaceSummary()"></p>
+            <p
+              x-show="(planningImportResult.unmapped || []).length"
+              class="text-amber-700"
+            >
+              Ces activités n’ont pas d’offre. Elles n’apparaîtront pas dans la grille tant qu’elles ne sont pas associées.
+              <span class="font-medium block mt-1" x-text="(planningImportResult.unmapped || []).join(', ')"></span>
+            </p>
+            <p
+              x-show="!(planningImportResult.unmapped || []).length"
+              class="text-slate-600"
+            >Toutes les activités du fichier ont déjà une offre.</p>
+          </div>
+          <div x-show="planningImportResult && !planningImportApplied && planningPreviewDays.length" x-cloak class="mt-4 space-y-2">
+            <div class="flex flex-wrap items-end gap-3">
+              <div>
+                <p class="text-xs font-semibold text-slate-800">Aperçu (pas encore enregistré)</p>
+                <p class="text-[11px] text-slate-500">Changer le jour ne relance pas l’analyse.</p>
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Jour</label>
+                <select
+                  x-model="planningPreviewDay"
+                  class="border border-shell-border rounded-md px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-slate-400"
+                >
+                  <template x-for="d in planningPreviewDays" :key="'prev-' + d">
+                    <option :value="d" x-text="formatPlanningDay(d)"></option>
+                  </template>
+                </select>
+              </div>
             </div>
-            <div class="bg-slate-50 rounded-md px-3 py-2 border border-shell-border">
-              <p class="text-slate-500">Lignes détail</p>
-              <p class="font-semibold tabular-nums text-slate-800" x-text="planningImportResult?.detailRows ?? '—'"></p>
-            </div>
-            <div class="bg-slate-50 rounded-md px-3 py-2 border border-shell-border">
-              <p class="text-slate-500">Créneaux agrégés</p>
-              <p class="font-semibold tabular-nums text-slate-800" x-text="planningImportResult?.activityRows ?? '—'"></p>
-            </div>
-            <div class="bg-slate-50 rounded-md px-3 py-2 border border-shell-border"
-              :class="(planningImportResult?.unmapped || []).length ? 'border-amber-200 bg-amber-50' : ''">
-              <p class="text-slate-500">Non classés</p>
-              <p class="font-semibold tabular-nums text-slate-800" x-text="(planningImportResult?.unmapped || []).length"></p>
+            <p x-show="planningPreviewGridRows.length === 0" class="text-xs text-slate-400">
+              Aucune offre active ni planifiée ce jour.
+            </p>
+            <div x-show="planningPreviewGridRows.length > 0" class="overflow-x-auto border border-shell-border rounded-md">
+              <table class="planning-grid text-[10px] border-collapse">
+                <thead>
+                  <tr class="bg-slate-50">
+                    <th class="planning-offer sticky left-0 z-10 bg-slate-50 px-2 py-1.5 text-left text-xs font-medium text-slate-500 border-b border-r border-shell-border">Offre</th>
+                    <template x-for="col in planningSlotColumns" :key="'ph-' + col.minutes">
+                      <th
+                        class="px-0.5 py-1.5 text-center font-medium border-b border-shell-border whitespace-nowrap text-slate-400"
+                        x-text="col.label"
+                      ></th>
+                    </template>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="row in planningPreviewGridRows" :key="'pr-' + row.offerCode">
+                    <tr :class="planningOfferActive(row) ? '' : 'opacity-60'">
+                      <td
+                        class="planning-offer sticky left-0 z-10 px-2 py-1 border-r border-b border-shell-border"
+                        :class="planningOfferActive(row) ? 'bg-white' : 'bg-slate-50'"
+                      >
+                        <div class="flex flex-wrap items-center gap-1.5">
+                          <div
+                            class="text-xs font-semibold"
+                            :class="planningOfferActive(row) ? 'text-slate-700' : 'text-slate-500'"
+                            x-text="row.label"
+                          ></div>
+                          <span
+                            x-show="!planningOfferActive(row)"
+                            class="text-[10px] bg-red-100 text-red-700 rounded-full px-1.5 py-0.5 font-medium shrink-0"
+                          >Désactivée</span>
+                        </div>
+                        <div class="text-[10px] font-normal text-slate-500 leading-snug whitespace-normal" x-text="planningQuotaRule(row)"></div>
+                      </td>
+                      <template x-for="col in planningSlotColumns" :key="'pr-' + row.offerCode + '-' + col.minutes">
+                        <td class="px-0.5 py-1 text-center tabular-nums border-b border-slate-100">
+                          <span x-show="row.bySlot[col.minutes]">
+                            <span class="font-medium text-slate-700" x-text="row.bySlot[col.minutes] ? row.bySlot[col.minutes].headcount : ''"></span>
+                            <span class="text-slate-300">/</span>
+                            <span
+                              class="font-bold"
+                            :class="planningOfferActive(row) ? 'text-orange-600' : 'text-slate-400'"
+                            x-text="row.bySlot[col.minutes] ? row.bySlot[col.minutes].allowed : ''"
+                          ></span>
+                          </span>
+                          <span x-show="!row.bySlot[col.minutes]" class="text-slate-300">—</span>
+                        </td>
+                      </template>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
             </div>
           </div>
-          <p x-show="planningImportResult && (planningImportResult.unmapped || []).length" x-cloak
-            class="mt-2 text-xs text-amber-700"
-            x-text="'Libellés à classer : ' + (planningImportResult.unmapped || []).join(', ')"></p>
-          <p x-show="planningImportResult" x-cloak class="mt-3">
+          <p x-show="planningImportResult && !planningImportApplied" x-cloak class="mt-3 text-xs text-slate-600">
+            Les jours du fichier remplacent le planning existant et recalculent les quotas de l’onglet Temps réel.
+          </p>
+          <div x-show="planningImportResult && !planningImportApplied" x-cloak class="mt-3 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              @click="openPlanningGrid()"
-              class="text-xs font-semibold text-brand-700 hover:text-brand-800 underline"
+              @click="applyPlanningImport"
+              :disabled="planningApplying || planningImporting"
+              class="bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold rounded-md px-4 py-2 transition"
             >
-              Voir la grille
+              <span x-show="planningApplying">Remplacement…</span>
+              <span x-show="!planningApplying" x-text="'Remplacer le planning (' + planningPeriodLabel() + ')'"></span>
             </button>
-          </p>
+            <button
+              type="button"
+              @click="cancelPlanningPreview"
+              :disabled="planningApplying || planningImporting"
+              class="text-xs font-semibold text-slate-600 hover:text-slate-800 px-3 py-2 rounded-md border border-shell-border bg-white disabled:opacity-40"
+            >
+              Annuler
+            </button>
+          </div>
+          <template x-if="planningImportApplied">
+            <div class="mt-3 space-y-1">
+              <p class="text-xs text-green-600" x-text="planningAppliedSummary()"></p>
+              <p>
+                <button
+                  type="button"
+                  @click="openPlanningGrid()"
+                  class="text-xs font-semibold text-brand-700 hover:text-brand-800 underline"
+                >
+                  Voir la grille
+                </button>
+              </p>
+            </div>
+          </template>
         </section>
 
         <section class="bg-white rounded-md border border-shell-border shadow-sm overflow-hidden">
@@ -1040,7 +1168,7 @@
           <p x-show="planningMappingError" x-cloak class="px-5 py-2 text-xs text-red-500" x-text="planningMappingError"></p>
           <p x-show="planningMappingMsg" x-cloak class="px-5 py-2 text-xs text-green-600" x-text="planningMappingMsg"></p>
           <div x-show="planningMappings.length === 0" class="px-5 py-8 text-center text-sm text-slate-400">
-            Aucun libellé. Importez un CSV pour les voir apparaître.
+            Aucun libellé. Choisissez un CSV pour les voir apparaître.
           </div>
           <div x-show="planningMappings.length > 0" class="overflow-x-auto">
             <table class="w-full text-sm">
@@ -1063,6 +1191,7 @@
                     <td class="px-5 py-2.5">
                       <select
                         x-model="row.offerCode"
+                        @change="onPlanningMappingChange"
                         class="w-full max-w-xs border border-shell-border rounded-md px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-400"
                       >
                         <option value="">Non classé</option>
@@ -1309,7 +1438,7 @@
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">MODE URGENCE</dt>
-              <dd class="text-sm text-slate-600">Bloque <span class="font-medium text-slate-800">tout nouveau départ</span> en pause. Les pauses déjà commencées continuent. Le bouton devient « MODE URGENCE ACTIF — Cliquer pour désactiver » pour lever le blocage.</dd>
+              <dd class="text-sm text-slate-600">Bloque <span class="font-medium text-slate-800">tout nouveau départ</span> en pause, toutes offres. Les pauses déjà commencées continuent. L’activation demande confirmation. Le bouton devient « MODE URGENCE ACTIF — Cliquer pour désactiver » : un clic suffit pour lever le blocage, sans confirmation.</dd>
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">Forcer retour</dt>
@@ -1320,7 +1449,7 @@
 
         <section class="bg-white rounded-md border border-shell-border shadow-sm p-5">
           <h3 class="text-sm font-semibold text-slate-800 mb-2">Onglet Grille</h3>
-          <p class="text-sm text-slate-600 mb-3">Consultation des effectifs planifiés (gris) et quotas autorisés (couleur de l’appli) par quart d’heure. Pas de temps réel, pas d’importation.</p>
+          <p class="text-sm text-slate-600 mb-3">Consultation des effectifs planifiés (gris) et quotas autorisés (orange) par quart d’heure. Pas de temps réel, pas d’importation.</p>
           <dl class="space-y-3">
             <div>
               <dt class="text-xs font-semibold text-slate-800">Jour / De / À</dt>
@@ -1430,7 +1559,7 @@
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">Planning — Importation</dt>
-              <dd class="text-sm text-slate-600">Rapport Genesys WFM Planning individuel (CSV Windows). Les lignes résumé (heures payées) sont ignorées. Une nouvelle importation remplace les jours du fichier. Les identifiants agents ne sont pas stockés. Après l’importation, « Voir la grille » ouvre l’onglet Grille sur le premier jour du fichier.</dd>
+              <dd class="text-sm text-slate-600">Fichier attendu : le « Rapport sur le planning individuel » de Genesys WFM, au format CSV. Les lignes résumé (heures payées) sont ignorées. Le fichier est lu dès sa sélection, sans écriture. <span class="font-medium text-slate-800">Relancer l’analyse</span> rejoue le même CSV après un changement de jours ou de correspondance. <span class="font-medium text-slate-800">Remplacer le planning</span> écrase les jours du fichier et recalcule les quotas de l’onglet Temps réel. Annuler jette l’analyse. Changer une correspondance ou l’enregistrer annule l’analyse en cours : il faut relancer l’analyse avant de remplacer. Les identifiants agents ne sont pas stockés. Après remplacement, « Voir la grille » ouvre l’onglet Grille sur le premier jour du fichier. Les cases lun–dim et « Exclure les jours fériés français » s’enregistrent tout de suite : seuls ces jours sont lus à l’analyse et au remplacement ; un changement invalide l’aperçu.</dd>
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">Planning — Correspondance</dt>
@@ -1489,6 +1618,15 @@
 const SUPERVISOR_TAB_IDS = new Set(['live', 'history', 'grid', 'directory', 'settings', 'about']);
 const SETTINGS_SUBTAB_IDS = new Set(['general', 'offers', 'planning', 'access']);
 const LEGACY_TAB_REDIRECTS = { quotas: 'live', planning: 'grid' };
+const PLANNING_IMPORT_WEEKDAY_OPTIONS = [
+  { value: 1, label: 'lun' },
+  { value: 2, label: 'mar' },
+  { value: 3, label: 'mer' },
+  { value: 4, label: 'jeu' },
+  { value: 5, label: 'ven' },
+  { value: 6, label: 'sam' },
+  { value: 7, label: 'dim' },
+];
 
 function parseSupervisorHash(hash) {
   const raw = String(hash || '').replace(/^#/, '').trim();
@@ -1626,14 +1764,26 @@ function supervisorApp() {
     // ── Planning ─────────────────────────────────
     planningDay: parisClock().day,
     planningImporting: false,
+    planningApplying: false,
     planningImportError: '',
+    planningImportHint: '',
     planningImportResult: null,
+    planningImportApplied: false,
+    planningImportFile: null,
     planningMappings: [],
     planningMappingSaving: false,
     planningMappingError: '',
     planningMappingMsg: '',
     planningSlots: [],
     planningSlotsError: '',
+    planningPreviewByDay: {},
+    planningPreviewDay: '',
+    planningImportWeekdays: [1, 2, 3, 4, 5],
+    planningSkipFrenchHolidays: true,
+    planningImportDaysError: '',
+    planningImportDaysMsg: '',
+    _planningImportDaysMsgTimer: null,
+    planningImportWeekdayOptions: PLANNING_IMPORT_WEEKDAY_OPTIONS,
     planningGridFrom: loadStoredPlanningHours().from,
     planningGridTo: loadStoredPlanningHours().to,
     planningGridHoursError: '',
@@ -1746,14 +1896,33 @@ function supervisorApp() {
       });
     },
 
-    get planningGridRows() {
-      return (this.planningSlots || [])
+    mapOffersToGridRows(offers) {
+      return (offers || [])
         .filter((offer) => this.planningOfferActive(offer) || (offer.slots || []).length > 0)
         .map((offer) => {
           const bySlot = {};
           for (const s of offer.slots || []) bySlot[s.slotMinutes] = s;
           return { ...offer, bySlot };
         });
+    },
+
+    get planningGridRows() {
+      return this.mapOffersToGridRows(this.planningSlots);
+    },
+
+    get planningPreviewDays() {
+      return Object.keys(this.planningPreviewByDay || {}).sort();
+    },
+
+    get planningPreviewGridRows() {
+      return this.mapOffersToGridRows(this.planningPreviewByDay[this.planningPreviewDay] || []);
+    },
+
+    get canRerunPlanningPreview() {
+      return !!this.planningFileToSend()
+        && !this.planningImportResult
+        && !this.planningImporting
+        && !this.planningApplying;
     },
 
     get planningSlotColumns() {
@@ -1893,7 +2062,7 @@ function supervisorApp() {
       if (sub === 'offers') {
         await Promise.all([this.loadOffersAdmin(), this.loadQuotas()]);
       } else if (sub === 'planning') {
-        await this.loadPlanning();
+        await Promise.all([this.loadPlanning(), this.loadSettings()]);
       }
     },
 
@@ -2060,17 +2229,47 @@ function supervisorApp() {
       return 'Non classé';
     },
 
+    mappingSortRank(row) {
+      if (row.offerCode && row.offerCode !== '__ignore__') return 0;
+      if (row.offerCode === '__ignore__') return 2;
+      return 1;
+    },
+
     mappingStatusClass(row) {
       if (row.offerCode === '__ignore__') return 'bg-slate-100 text-slate-600';
       if (row.offerCode) return 'bg-brand-500/15 text-brand-700';
       return 'bg-amber-50 text-amber-700';
     },
 
+    formatPlanningDay(isoDay) {
+      const m = String(isoDay || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return isoDay || '—';
+      return `${m[3]}/${m[2]}/${m[1]}`;
+    },
+
     planningPeriodLabel() {
       const days = this.planningImportResult?.days || [];
       if (!days.length) return '—';
-      if (days.length === 1) return days[0];
-      return `${days[0]} → ${days[days.length - 1]}`;
+      if (days.length === 1) return this.formatPlanningDay(days[0]);
+      return `${this.formatPlanningDay(days[0])} → ${this.formatPlanningDay(days[days.length - 1])}`;
+    },
+
+    planningReplaceSummary() {
+      const days = this.planningImportResult?.days || [];
+      if (!days.length) return '';
+      if (days.length === 1) {
+        return `1 jour sera remplacé : ${this.formatPlanningDay(days[0])}.`;
+      }
+      return `${days.length} jours seront remplacés, du ${this.formatPlanningDay(days[0])} au ${this.formatPlanningDay(days[days.length - 1])}.`;
+    },
+
+    planningAppliedSummary() {
+      const days = this.planningImportResult?.days || [];
+      if (!days.length) return 'Planning remplacé.';
+      if (days.length === 1) {
+        return `Planning remplacé : 1 jour (${this.formatPlanningDay(days[0])}).`;
+      }
+      return `Planning remplacé : ${days.length} jours, du ${this.formatPlanningDay(days[0])} au ${this.formatPlanningDay(days[days.length - 1])}.`;
     },
 
     isCurrentPlanningSlot(minutes) {
@@ -2080,7 +2279,7 @@ function supervisorApp() {
 
     planningCellClass(row, minutes) {
       if (!this.isCurrentPlanningSlot(minutes)) return '';
-      return this.planningOfferActive(row) ? 'bg-brand-500/15' : 'bg-slate-100';
+      return this.planningOfferActive(row) ? 'bg-slate-50' : 'bg-slate-100';
     },
 
     planningQuotaRule(row) {
@@ -2150,6 +2349,7 @@ function supervisorApp() {
     },
 
     mergePlanningMappings(apiRows, extraUnmapped = []) {
+      this._ignoreMappingChange = true;
       const byLabel = new Map();
       for (const row of apiRows || []) {
         let offerCode = '';
@@ -2161,9 +2361,12 @@ function supervisorApp() {
       for (const label of extraUnmapped || []) {
         if (!byLabel.has(label)) byLabel.set(label, { label, offerCode: '' });
       }
-      this.planningMappings = [...byLabel.values()].sort((a, b) =>
-        a.label.localeCompare(b.label, 'fr')
-      );
+      this.planningMappings = [...byLabel.values()].sort((a, b) => {
+        const rank = this.mappingSortRank(a) - this.mappingSortRank(b);
+        if (rank !== 0) return rank;
+        return a.label.localeCompare(b.label, 'fr');
+      });
+      this.$nextTick(() => { this._ignoreMappingChange = false; });
     },
 
     async loadPlanning() {
@@ -2206,14 +2409,109 @@ function supervisorApp() {
       }
     },
 
-    async importPlanning() {
+    clearPlanningPreview(hint = '') {
+      this.planningImportResult = null;
+      this.planningImportApplied = false;
+      this.planningImportError = '';
+      this.planningImportHint = hint;
+      this.planningPreviewByDay = {};
+      this.planningPreviewDay = '';
+    },
+
+    onPlanningFileChange() {
       const input = this.$refs.planningFile;
       const file = input && input.files && input.files[0];
+      this.planningImportFile = file || null;
+      if (!file) return;
+      if (this.planningImportResult || this.planningImportApplied) {
+        this.clearPlanningPreview();
+      }
+      this.previewPlanning();
+    },
+
+    resetPlanningFileInput() {
+      this.planningImportFile = null;
+      const input = this.$refs.planningFile;
+      if (input) input.value = '';
+    },
+
+    onPlanningMappingChange() {
+      if (this._ignoreMappingChange) return;
+      if (!this.planningImportResult || this.planningImportApplied) return;
+      this.clearPlanningPreview(
+        'Correspondance modifiée : enregistrez-la si besoin, puis relancez l’analyse.'
+      );
+    },
+
+    planningFileToSend() {
+      if (this.planningImportFile) return this.planningImportFile;
+      const input = this.$refs.planningFile;
+      return (input && input.files && input.files[0]) || null;
+    },
+
+    async previewPlanning() {
+      const file = this.planningFileToSend();
       if (!file) {
         this.planningImportError = 'Choisissez un fichier CSV.';
         return;
       }
       this.planningImporting = true;
+      this.planningImportError = '';
+      this.planningImportHint = '';
+      this.planningImportApplied = false;
+      try {
+        const body = new FormData();
+        body.append('file', file);
+        const res = await fetch('/api/supervisor/planning/import/preview', {
+          method: 'POST',
+          credentials: 'include',
+          body,
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          this.planningImportError = data.error?.message || 'Analyse refusée.';
+          this.planningImportResult = null;
+          this.planningPreviewByDay = {};
+          this.planningPreviewDay = '';
+          return;
+        }
+        this.planningImportFile = file;
+        this.planningImportResult = data;
+        this.planningPreviewByDay = data.offersByDay || {};
+        this.$nextTick(() => {
+          const previewDays = Object.keys(this.planningPreviewByDay).sort();
+          const withStaff = previewDays.find((d) =>
+            (this.planningPreviewByDay[d] || []).some((o) => (o.slots || []).length > 0)
+          );
+          this.planningPreviewDay = withStaff || previewDays[0] || '';
+        });
+        this.mergePlanningMappings(
+          this.planningMappings.map((r) => ({
+            label: r.label,
+            offerCode: r.offerCode || null,
+            ignored: r.offerCode === '__ignore__',
+            unmapped: !r.offerCode,
+          })),
+          data.unmapped || []
+        );
+      } catch {
+        this.planningImportError = 'Erreur réseau.';
+        this.planningImportResult = null;
+        this.planningPreviewByDay = {};
+        this.planningPreviewDay = '';
+      } finally {
+        this.planningImporting = false;
+      }
+    },
+
+    async applyPlanningImport() {
+      if (!this.planningImportResult || this.planningImportApplied) return;
+      const file = this.planningFileToSend();
+      if (!file) {
+        this.planningImportError = 'Choisissez un fichier CSV.';
+        return;
+      }
+      this.planningApplying = true;
       this.planningImportError = '';
       try {
         const body = new FormData();
@@ -2225,18 +2523,24 @@ function supervisorApp() {
         });
         const data = await res.json();
         if (!res.ok) {
-          this.planningImportError = data.error?.message || 'Importation refusée.';
+          this.planningImportError = data.error?.message || 'Remplacement refusé.';
           return;
         }
         this.planningImportResult = data;
+        this.planningImportApplied = true;
+        this.resetPlanningFileInput();
         const days = data.days || [];
         if (days.length) this.planningDay = days[0];
         await Promise.all([this.loadPlanningMapping(), this.loadPlanningSlots(), this.loadQuotas()]);
       } catch {
         this.planningImportError = 'Erreur réseau.';
       } finally {
-        this.planningImporting = false;
+        this.planningApplying = false;
       }
+    },
+
+    cancelPlanningPreview() {
+      this.clearPlanningPreview();
     },
 
     openPlanningGrid() {
@@ -2271,7 +2575,12 @@ function supervisorApp() {
           this.planningMappingError = data.error?.message || 'Enregistrement refusé.';
           return;
         }
-        this.mergePlanningMappings(data.mappings || [], this.planningImportResult?.unmapped || []);
+        if (!this.planningImportApplied) {
+          this.clearPlanningPreview(
+            'Correspondance modifiée : enregistrez-la si besoin, puis relancez l’analyse.'
+          );
+        }
+        this.mergePlanningMappings(data.mappings || [], []);
         this.planningMappingMsg = 'Correspondance enregistrée, grille recalculée.';
         await Promise.all([this.loadPlanningSlots(), this.loadQuotas()]);
         setTimeout(() => { this.planningMappingMsg = ''; }, 4000);
@@ -2338,6 +2647,74 @@ function supervisorApp() {
         await this.loadSettings();
       } finally {
         this.pauseWindowsSaving = false;
+      }
+    },
+
+    async setPlanningImportWeekday(n, checked) {
+      const has = this.planningImportWeekdays.includes(n);
+      if (checked === has) return;
+      const set = new Set(this.planningImportWeekdays);
+      if (checked) set.add(n);
+      else set.delete(n);
+      if (set.size === 0) {
+        this.planningImportDaysError = 'Cochez au moins un jour.';
+        this.planningImportDaysMsg = '';
+        return;
+      }
+      this.planningImportWeekdays = [...set].sort((a, b) => a - b);
+      await this.savePlanningImportDays();
+    },
+
+    async setPlanningSkipFrenchHolidays(checked) {
+      if (checked === this.planningSkipFrenchHolidays) return;
+      this.planningSkipFrenchHolidays = checked === true;
+      await this.savePlanningImportDays();
+    },
+
+    showPlanningImportDaysMsg(text) {
+      if (this._planningImportDaysMsgTimer) {
+        clearTimeout(this._planningImportDaysMsgTimer);
+        this._planningImportDaysMsgTimer = null;
+      }
+      this.planningImportDaysMsg = text;
+      this._planningImportDaysMsgTimer = setTimeout(() => {
+        this.planningImportDaysMsg = '';
+        this._planningImportDaysMsgTimer = null;
+      }, 4000);
+    },
+
+    async savePlanningImportDays() {
+      this.planningImportDaysError = '';
+      try {
+        const res = await fetch('/api/supervisor/settings/planning-import-days', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            weekdays: this.planningImportWeekdays,
+            skipFrenchHolidays: this.planningSkipFrenchHolidays === true,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          this.planningImportDaysError = data.error?.message || 'Enregistrement refusé.';
+          this.planningImportDaysMsg = '';
+          await this.loadSettings();
+          return;
+        }
+        this.planningImportWeekdays = data.weekdays || this.planningImportWeekdays;
+        this.planningSkipFrenchHolidays = data.skipFrenchHolidays === true;
+        const hadPreview = !!this.planningImportResult && !this.planningImportApplied;
+        this.clearPlanningPreview();
+        this.showPlanningImportDaysMsg(
+          hadPreview
+            ? 'Jours d’import enregistrés. Relancez l’analyse.'
+            : 'Jours d’import enregistrés.'
+        );
+      } catch {
+        this.planningImportDaysError = 'Erreur réseau.';
+        this.planningImportDaysMsg = '';
+        await this.loadSettings();
       }
     },
 
@@ -3037,6 +3414,17 @@ function supervisorApp() {
       }
     },
 
+    parseImportWeekdaysSetting(raw) {
+      let parsed = raw;
+      if (typeof raw === 'string') {
+        try { parsed = JSON.parse(raw); } catch { parsed = [1, 2, 3, 4, 5]; }
+      }
+      if (!Array.isArray(parsed) || !parsed.length) return [1, 2, 3, 4, 5];
+      const nums = [...new Set(parsed.map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= 7))]
+        .sort((a, b) => a - b);
+      return nums.length ? nums : [1, 2, 3, 4, 5];
+    },
+
     async loadSettings() {
       try {
         const res  = await fetch('/api/supervisor/settings', {
@@ -3053,6 +3441,8 @@ function supervisorApp() {
         this.supervisorPinConfigured       = !!data.settings?.supervisor_pin_configured;
         this.supervisorPinInput            = '';
         this.pauseWindows                  = this.parsePauseWindowsSetting(data.settings?.pause_windows);
+        this.planningImportWeekdays        = this.parseImportWeekdaysSetting(data.settings?.planning_import_weekdays);
+        this.planningSkipFrenchHolidays    = data.settings?.planning_skip_french_holidays !== '0';
         this.updateThresholds();
       } catch { /* silencieux */ }
     },
@@ -3232,6 +3622,12 @@ function supervisorApp() {
 
     async toggleMaintenance() {
       if (this.maintenanceLoading) return;
+      if (!this.maintenanceMode) {
+        const ok = window.confirm(
+          'Activer le mode urgence ? Tous les agents ne pourront plus démarrer de pause. Les pauses en cours continuent. Confirmer ?'
+        );
+        if (!ok) return;
+      }
       this.maintenanceLoading = true;
       try {
         const res = await fetch('/api/supervisor/settings/maintenance-mode', {
