@@ -7,7 +7,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "seed": "node scripts/seed.js",
-    "test": "node --test tests/genesysPlanningImport.test.js"
+    "test": "node --test tests/genesysPlanningImport.test.js tests/pauseWindows.test.js"
   },
   "dependencies": {
     "cookie-parser": "^1.4.6",

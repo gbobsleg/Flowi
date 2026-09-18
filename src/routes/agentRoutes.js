@@ -2,6 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const db      = require('../db');
 const { Errors, isValidOfferCode } = require('../middlewares/validate');
+const { parsePauseWindows, pauseWindowStatus } = require('../lib/pauseWindows');
 
 // ---------- helpers internes ----------
 
@@ -51,33 +52,14 @@ function getParisClock(date = new Date()) {
   };
 }
 
-function hmToMinutes(raw) {
-  const m = String(raw || '').trim().match(/^(\d{1,2}):(\d{2})$/);
-  if (!m) return null;
-  const h = Number(m[1]);
-  const min = Number(m[2]);
-  if (h > 23 || min > 59) return null;
-  return h * 60 + min;
-}
-
-function parsePauseWindows(raw) {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (_) {
-    return [];
-  }
-}
-
-function isInsidePauseWindows(minutesOfDay, windows) {
-  if (!windows.length) return true;
-  return windows.some((w) => {
-    const start = hmToMinutes(w && w.start);
-    const end = hmToMinutes(w && w.end);
-    if (start == null || end == null) return false;
-    return minutesOfDay >= start && minutesOfDay < end;
-  });
+async function loadPauseWindowStatus(client) {
+  const clock = getParisClock();
+  const windowsRow = await qOne(
+    "SELECT value FROM app_settings WHERE key = 'pause_windows'",
+    [],
+    client
+  );
+  return pauseWindowStatus(clock.minutesOfDay, parsePauseWindows(windowsRow && windowsRow.value));
 }
 
 /** floor(headcount × %) ; minimum 1 dès qu’il y a au moins une tête planifiée. */
@@ -98,13 +80,8 @@ function allowedFromHeadcount(headcount, percent) {
  */
 async function effectiveQuota(offerId, client) {
   const clock = getParisClock();
-  const windowsRow = await qOne(
-    "SELECT value FROM app_settings WHERE key = 'pause_windows'",
-    [],
-    client
-  );
-  const windows = parsePauseWindows(windowsRow && windowsRow.value);
-  if (!isInsidePauseWindows(clock.minutesOfDay, windows)) return 0;
+  const windowStatus = await loadPauseWindowStatus(client);
+  if (!windowStatus.open) return 0;
 
   const rule = await qOne(
     'SELECT qr.fixed_quota, qr.allowed_percent, o.default_quota ' +
@@ -195,13 +172,17 @@ async function buildSnapshot() {
 async function emitOfferUpdate(io, offerCode, offerId) {
   const quota  = await effectiveQuota(offerId);
   const active = await countActivePauses(offerId);
+  const windowStatus = await loadPauseWindowStatus();
+  let reason = null;
+  if (!windowStatus.open) reason = 'outside_window';
+  else if (active >= quota) reason = 'quota_reached';
   const blockPayload = {
     offerCode,
     canStartPause:    active < quota,
     effectiveQuota:   quota,
     currentPaused:    active,
     blockedForNewStarts: active >= quota,
-    reason: active >= quota ? 'quota_reached' : null,
+    reason,
   };
   io.to(`offer:${offerCode}`).emit('offer:block-status', blockPayload);
   io.emit('offer:block-status', blockPayload);
@@ -276,6 +257,7 @@ router.get('/bootstrap', async (req, res) => {
       activePause: activePause || null,
       snapshot: await buildSnapshot(),
       quotas: await buildQuotasSnapshot(),
+      pauseWindows: await loadPauseWindowStatus(),
       maintenanceMode,
       maxPauseMinutes,
     });
@@ -362,6 +344,11 @@ router.post('/pause/start', async (req, res) => {
     );
     if (maintenanceRow && maintenanceRow.value === '1') {
       return res.status(503).json({ error: { code: 'MAINTENANCE_ACTIVE', message: 'Départs en pause suspendus (Consigne Superviseur)' } });
+    }
+
+    const windowStatus = await loadPauseWindowStatus();
+    if (!windowStatus.open) {
+      return Errors.outsidePauseWindow(res, windowStatus.nextOpen);
     }
 
     const now = nowIso();
@@ -487,4 +474,5 @@ module.exports = {
   emitQuotasUpdate,
   getParisClock,
   allowedFromHeadcount,
+  loadPauseWindowStatus,
 };

@@ -54,6 +54,16 @@ const Errors = {
       `Quota de pauses atteint pour cette offre (${active}/${quota})`,
       { quota, active }),
 
+  outsidePauseWindow: (res, nextOpen) => {
+    let message = 'Hors plage de pause.';
+    if (nextOpen && nextOpen.hhmm) {
+      message = nextOpen.tomorrow
+        ? `Hors plage. Prochaine ouverture demain à ${nextOpen.hhmm}.`
+        : `Hors plage. Prochaine ouverture à ${nextOpen.hhmm}.`;
+    }
+    return apiError(res, 409, 'OUTSIDE_PAUSE_WINDOW', message, { nextOpen: nextOpen || null });
+  },
+
   unauthorized: (res) =>
     apiError(res, 401, 'UNAUTHORIZED', 'Authentification requise'),
 

@@ -3,9 +3,10 @@ const multer  = require('multer');
 const router  = express.Router();
 const db      = require('../db');
 const { createSession, validatePin, requireSupervisor } = require('../middlewares/supervisorAuth');
-const { effectiveQuota, countActivePauses, emitOfferUpdate, emitQuotasUpdate, allowedFromHeadcount } = require('./agentRoutes');
+const { effectiveQuota, countActivePauses, emitOfferUpdate, emitQuotasUpdate, allowedFromHeadcount, getParisClock } = require('./agentRoutes');
 const { Errors, apiError, isValidOfferCode, newOfferCode, isPositiveInt, isPercent } = require('../middlewares/validate');
 const { importGenesysBuffer, GenesysImportError, canonicalWfmLabel } = require('../services/genesysPlanningImport');
+const { pauseWindowStatus } = require('../lib/pauseWindows');
 
 function nowIso() { return new Date().toISOString(); }
 
@@ -1121,8 +1122,12 @@ router.put('/settings/pause-windows', requireSupervisor, async (req, res) => {
 
     await db.query(UPSERT_SETTING, ['pause_windows', JSON.stringify(normalized)]);
 
+    const pauseWindows = pauseWindowStatus(getParisClock().minutesOfDay, normalized);
     const io = req.app.get('io');
-    if (io) await emitQuotasUpdate(io);
+    if (io) {
+      await emitQuotasUpdate(io);
+      io.emit('system:settings-updated', { pauseWindows });
+    }
 
     res.json({ windows: normalized });
   } catch (err) {

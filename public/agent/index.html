@@ -84,6 +84,12 @@
         </div>
       </template>
     </div>
+    <p
+      x-show="pauseWindowsLabel"
+      x-cloak
+      class="mt-3 text-xs text-slate-500"
+      x-text="pauseWindowsLabel"
+    ></p>
   </section>
 
   <!-- ── Identification ─────────────────────────────── -->
@@ -165,9 +171,23 @@
       </select>
     </div>
 
+    <!-- Alerte hors plage -->
+    <div
+      x-show="isOutsidePauseWindow && !isPaused"
+      x-cloak
+      x-transition
+      class="mb-4 flex items-center gap-2 bg-slate-50 border border-shell-border text-slate-700 text-xs rounded-lg px-3 py-2"
+    >
+      <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-join="round" stroke-width="2"
+          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+      </svg>
+      <span x-text="outsidePauseWindowMessage"></span>
+    </div>
+
     <!-- Alerte quota atteint -->
     <div
-      x-show="isOfferBlocked && !isPaused"
+      x-show="isQuotaBannerVisible && !isPaused"
       x-cloak
       x-transition
       class="mb-4 flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-700 text-xs rounded-lg px-3 py-2"
@@ -196,11 +216,11 @@
     <!-- Bouton action principal -->
     <button
       @click="togglePause"
-      :disabled="isActionLoading || (!isPaused && (!profilValideSelectionne || !offerCode)) || (!isPaused && isOfferBlocked) || (!isPaused && maintenanceMode)"
+      :disabled="isActionLoading || (!isPaused && (!profilValideSelectionne || !offerCode)) || (!isPaused && isStartBlocked) || (!isPaused && maintenanceMode)"
       :class="{
         'bg-red-500 hover:bg-red-600 text-white': isPaused,
-        'bg-brand-600 hover:bg-brand-700 text-white': !isPaused && !isOfferBlocked && !maintenanceMode,
-        'bg-slate-200 text-slate-400 cursor-not-allowed': !isPaused && (!profilValideSelectionne || isOfferBlocked || maintenanceMode),
+        'bg-brand-600 hover:bg-brand-700 text-white': !isPaused && !isStartBlocked && !maintenanceMode,
+        'bg-slate-200 text-slate-400 cursor-not-allowed': !isPaused && (!profilValideSelectionne || isStartBlocked || maintenanceMode),
         'opacity-60 cursor-wait': isActionLoading
       }"
       class="w-full rounded-md py-3 px-4 font-semibold text-sm transition-all duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-500 select-none"
@@ -318,6 +338,47 @@
      ALPINE APP
 ════════════════════════════════════════════════════ -->
 <script>
+function parisMinutesOfDay(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Paris',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(date);
+  const g = (type) => parts.find((p) => p.type === type).value;
+  return Number(g('hour')) * 60 + Number(g('minute'));
+}
+
+function hmToMinutesClient(raw) {
+  const m = String(raw || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h > 23 || min > 59) return null;
+  return h * 60 + min;
+}
+
+function pauseWindowStatusClient(minutesOfDay, windows) {
+  const sorted = [];
+  for (const w of Array.isArray(windows) ? windows : []) {
+    const start = hmToMinutesClient(w && w.start);
+    const end = hmToMinutesClient(w && w.end);
+    if (start == null || end == null || !(start < end)) continue;
+    const startHm = `${String(Math.floor(start / 60)).padStart(2, '0')}:${String(start % 60).padStart(2, '0')}`;
+    const endHm = `${String(Math.floor(end / 60)).padStart(2, '0')}:${String(end % 60).padStart(2, '0')}`;
+    sorted.push({ start: startHm, end: endHm, startMin: start, endMin: end });
+  }
+  sorted.sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
+  const publicWindows = sorted.map((w) => ({ start: w.start, end: w.end }));
+  if (!sorted.length) return { windows: publicWindows, open: true, nextOpen: null };
+  const t = Number(minutesOfDay);
+  const open = Number.isFinite(t) && sorted.some((w) => t >= w.startMin && t < w.endMin);
+  if (open) return { windows: publicWindows, open: true, nextOpen: null };
+  const later = Number.isFinite(t) ? sorted.find((w) => w.startMin > t) : sorted[0];
+  if (later) return { windows: publicWindows, open: false, nextOpen: { hhmm: later.start, tomorrow: false } };
+  return { windows: publicWindows, open: false, nextOpen: { hhmm: sorted[0].start, tomorrow: true } };
+}
+
 function agentApp() {
   return {
     // ── Identité ─────────────────────────────────────
@@ -348,6 +409,8 @@ function agentApp() {
     blockStatus: {},   // { [offerCode]: { canStartPause, effectiveQuota, currentPaused } }
     quotasTiles: [],   // [{ offre_id, nom, quota_max, pauses_en_cours }]
     pastelColors: ['#ffb3ba', '#ffdfba', '#ffffba', '#baffc9', '#bae1ff'],
+    pauseWindows: { windows: [], open: true, nextOpen: null },
+    pauseWindowForcedClosed: false,
 
     // ── Durée max pause ──────────────────────────────
     maxPauseMinutes: 15,
@@ -371,8 +434,36 @@ function agentApp() {
     // ── Computed ─────────────────────────────────────
     get isOfferBlocked() {
       if (!this.offerCode) return false;
+      if (this.isOutsidePauseWindow) return false;
       const s = this.blockStatus[this.offerCode];
       return s ? !s.canStartPause : false;
+    },
+
+    get isOutsidePauseWindow() {
+      return Array.isArray(this.pauseWindows.windows)
+        && this.pauseWindows.windows.length > 0
+        && this.pauseWindows.open === false;
+    },
+
+    get isStartBlocked() {
+      return this.isOutsidePauseWindow || this.isOfferBlocked;
+    },
+
+    get isQuotaBannerVisible() {
+      return this.isOfferBlocked && !this.isOutsidePauseWindow;
+    },
+
+    get pauseWindowsLabel() {
+      const windows = this.pauseWindows.windows || [];
+      if (!windows.length) return '';
+      return 'Pauses : ' + windows.map((w) => `${w.start}–${w.end}`).join(', ');
+    },
+
+    get outsidePauseWindowMessage() {
+      const next = this.pauseWindows.nextOpen;
+      if (!next || !next.hhmm) return 'Hors plage de pause.';
+      if (next.tomorrow) return `Hors plage. Prochaine ouverture demain à ${next.hhmm}.`;
+      return `Hors plage. Prochaine ouverture à ${next.hhmm}.`;
     },
 
     get filteredPauses() {
@@ -517,6 +608,8 @@ function agentApp() {
           this.applyQuotasPayload(data.quotas);
         }
 
+        this.applyPauseWindowsPayload(data.pauseWindows);
+
         if (!this.isPaused && this.offerCode) this.clearInvalidStoredOffer();
 
         if (data.agent && data.agent.is_active === true) {
@@ -564,6 +657,54 @@ function agentApp() {
         };
       }
       this.blockStatus = status;
+    },
+
+    /** Aligner offers + is_active depuis quotas:update (même jeu d'offres que le snapshot UNION côté API). */
+    applyPauseWindowsPayload(payload) {
+      if (!payload || typeof payload !== 'object') return;
+      this.pauseWindowForcedClosed = false;
+      const windows = Array.isArray(payload.windows) ? payload.windows : [];
+      this.pauseWindows = {
+        windows,
+        open: payload.open !== false,
+        nextOpen: payload.nextOpen || null,
+      };
+      this.refreshPauseWindowStatus();
+    },
+
+    refreshPauseWindowStatus() {
+      const computed = pauseWindowStatusClient(parisMinutesOfDay(), this.pauseWindows.windows);
+      if (this.pauseWindowForcedClosed) {
+        if (!computed.open) {
+          this.pauseWindowForcedClosed = false;
+          this.pauseWindows = computed;
+        } else {
+          this.pauseWindows = {
+            windows: computed.windows,
+            open: false,
+            nextOpen: this.pauseWindows.nextOpen,
+          };
+        }
+        return;
+      }
+      const wasClosed = this.pauseWindows.open === false;
+      this.pauseWindows = computed;
+      if (wasClosed && computed.open) this.reloadQuotasAfterWindowOpen();
+    },
+
+    async reloadQuotasAfterWindowOpen() {
+      try {
+        const res = await fetch(`/api/agent/bootstrap?agent_matricule=${encodeURIComponent(this.agent_matricule)}`, {
+          cache: 'no-store',
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (Array.isArray(data.quotas)) {
+          this.quotasTiles = data.quotas;
+          this.applyQuotasPayload(data.quotas);
+        }
+        if (data.snapshot) this.buildBlockStatus(data.snapshot);
+      } catch { /* silencieux */ }
     },
 
     /** Aligner offers + is_active depuis quotas:update (même jeu d'offres que le snapshot UNION côté API). */
@@ -720,7 +861,9 @@ function agentApp() {
 
       // Paramètres système mis à jour par le superviseur
       socket.on('system:settings-updated', (evt) => {
+        if (!evt) return;
         if (evt.maxPauseMinutes !== undefined) { this.maxPauseMinutes = evt.maxPauseMinutes; this.updateThresholds(); }
+        if (evt.pauseWindows) this.applyPauseWindowsPayload(evt.pauseWindows);
       });
 
       this._socket = socket;
@@ -834,13 +977,22 @@ function agentApp() {
           });
           const data = await res.json();
           if (!res.ok) {
-            if (res.status === 429) {
+            if (res.status === 409 && data.error?.code === 'OUTSIDE_PAUSE_WINDOW') {
+              this.pauseWindowForcedClosed = true;
+              this.pauseWindows = {
+                windows: this.pauseWindows.windows || [],
+                open: false,
+                nextOpen: data.error.fields?.nextOpen || this.pauseWindows.nextOpen || null,
+              };
+            } else if (res.status === 429) {
               this.blockStatus[this.offerCode] = { canStartPause: false, effectiveQuota: data.error?.fields?.quota, currentPaused: data.error?.fields?.active };
-            }
-            if (res.status === 503 && data.error?.code === 'MAINTENANCE_ACTIVE') {
+              this.errorMsg = data.error?.message || 'Erreur lors du départ en pause.';
+            } else if (res.status === 503 && data.error?.code === 'MAINTENANCE_ACTIVE') {
               this.maintenanceMode = true;
+              this.errorMsg = data.error?.message || 'Erreur lors du départ en pause.';
+            } else {
+              this.errorMsg = data.error?.message || 'Erreur lors du départ en pause.';
             }
-            this.errorMsg = data.error?.message || 'Erreur lors du départ en pause.';
           } else {
             this.persistLocal();
             // Rejoindre la room de l'offre sur le Socket
@@ -858,6 +1010,7 @@ function agentApp() {
     startTick() {
       setInterval(() => {
         this._now = Date.now();
+        this.refreshPauseWindowStatus();
         if (this.isPaused && this.myStartTime) {
           this.myElapsedSec = Math.floor((this._now - new Date(this.myStartTime).getTime()) / 1000);
           this.myElapsedMin = Math.floor(this.myElapsedSec / 60);
@@ -923,6 +1076,7 @@ function agentApp() {
 
     isQuotaReached(quota) {
       if (!quota) return false;
+      if (this.pauseWindows.open !== true) return false;
       if (!Number.isFinite(quota.quota_max)) return false;
       return Number(quota.pauses_en_cours || 0) >= quota.quota_max;
     },
