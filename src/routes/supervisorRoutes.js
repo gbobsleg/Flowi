@@ -744,7 +744,7 @@ router.get('/planning/slots', requireSupervisor, async (req, res) => {
     }
 
     const rows = await db.queryAll(
-      `SELECT o.id, o.code, o.label, o.default_quota, o.color,
+      `SELECT o.id, o.code, o.label, o.default_quota, o.color, o.is_active,
               qr.allowed_percent, qr.fixed_quota,
               ps.slot_minutes, ps.headcount
        FROM offers o
@@ -763,6 +763,7 @@ router.get('/planning/slots', requireSupervisor, async (req, res) => {
           offerCode: row.code,
           label: row.label,
           color: row.color,
+          isActive: row.is_active === true,
           defaultQuota: row.default_quota,
           allowedPercent: row.allowed_percent == null ? null : Number(row.allowed_percent),
           fixedQuota: row.fixed_quota == null ? null : Number(row.fixed_quota),

@@ -148,7 +148,10 @@
           </div>
           <p x-show="planningGridHoursError" x-cloak class="text-xs text-red-500 mb-2" x-text="planningGridHoursError"></p>
           <p x-show="planningSlotsError" x-cloak class="text-xs text-red-500 mb-2" x-text="planningSlotsError"></p>
-          <div class="overflow-x-auto border border-shell-border rounded-md">
+          <p x-show="!planningSlotsError && planningGridRows.length === 0" class="text-xs text-slate-400 mb-2">
+            Aucune offre active ni planifiée ce jour.
+          </p>
+          <div x-show="planningGridRows.length > 0" class="overflow-x-auto border border-shell-border rounded-md">
             <table class="planning-grid text-[10px] border-collapse">
               <thead>
                 <tr class="bg-slate-50">
@@ -165,9 +168,22 @@
               </thead>
               <tbody>
                 <template x-for="row in planningGridRows" :key="row.offerCode">
-                  <tr>
-                    <td class="planning-offer sticky left-0 z-10 bg-white px-2 py-1 border-r border-b border-shell-border">
-                      <div class="text-xs font-semibold text-slate-700" x-text="row.label"></div>
+                  <tr :class="planningOfferActive(row) ? '' : 'opacity-60'">
+                    <td
+                      class="planning-offer sticky left-0 z-10 px-2 py-1 border-r border-b border-shell-border"
+                      :class="planningOfferActive(row) ? 'bg-white' : 'bg-slate-50'"
+                    >
+                      <div class="flex flex-wrap items-center gap-1.5">
+                        <div
+                          class="text-xs font-semibold"
+                          :class="planningOfferActive(row) ? 'text-slate-700' : 'text-slate-500'"
+                          x-text="row.label"
+                        ></div>
+                        <span
+                          x-show="!planningOfferActive(row)"
+                          class="text-[10px] bg-red-100 text-red-700 rounded-full px-1.5 py-0.5 font-medium shrink-0"
+                        >Désactivée</span>
+                      </div>
                       <div class="text-[10px] font-normal text-slate-500 leading-snug whitespace-normal" x-text="planningQuotaRule(row)"></div>
                     </td>
                     <template x-for="col in planningSlotColumns" :key="row.offerCode + '-' + col.minutes">
@@ -178,7 +194,11 @@
                         <span x-show="row.bySlot[col.minutes]">
                           <span class="font-semibold text-slate-700" x-text="row.bySlot[col.minutes] ? row.bySlot[col.minutes].headcount : ''"></span>
                           <span class="text-slate-300">/</span>
-                          <span class="font-semibold text-brand-700" x-text="row.bySlot[col.minutes] ? row.bySlot[col.minutes].allowed : ''"></span>
+                          <span
+                            class="font-semibold"
+                            :class="planningOfferActive(row) ? 'text-brand-700' : 'text-slate-400'"
+                            x-text="row.bySlot[col.minutes] ? row.bySlot[col.minutes].allowed : ''"
+                          ></span>
                         </span>
                         <span x-show="!row.bySlot[col.minutes]" class="text-slate-300">—</span>
                       </td>
@@ -237,10 +257,10 @@
           </svg>
         </button>
         <div x-show="liveOverridesOpen" x-cloak class="border-t border-slate-100">
-          <template x-for="q in quotas" :key="'live-ov-' + q.offer.code">
+          <template x-for="q in visibleLiveQuotas" :key="'live-ov-' + q.offer.code">
             <div
               class="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 border-b border-slate-50 last:border-0"
-              :class="q.blocked ? 'bg-red-50/70' : ''"
+              :class="q.blocked ? 'bg-red-50/70' : (q.offer.is_active === false ? 'opacity-70' : '')"
             >
               <div class="flex items-center gap-2 min-w-0 flex-1">
                 <span
@@ -248,6 +268,10 @@
                   :style="{ backgroundColor: resolveOfferColor(q.offer.id ?? q.offer.code, q.offer.color) }"
                 ></span>
                 <span class="font-semibold text-xs text-slate-800 truncate" x-text="q.offer.label"></span>
+                <span
+                  x-show="q.offer.is_active === false"
+                  class="text-[10px] bg-red-100 text-red-700 rounded-full px-1.5 py-0.5 font-medium shrink-0"
+                >Désactivée</span>
               </div>
               <span
                 class="text-xs font-mono font-semibold tabular-nums"
@@ -281,7 +305,7 @@
               <p x-show="q._saveError" x-cloak class="w-full text-xs text-red-500" x-text="q._saveError"></p>
             </div>
           </template>
-          <p x-show="!quotas.length" class="px-4 py-3 text-xs text-slate-400">Aucune offre.</p>
+          <p x-show="!visibleLiveQuotas.length" class="px-4 py-3 text-xs text-slate-400">Aucune offre active.</p>
         </div>
       </div>
 
@@ -660,14 +684,10 @@
             <input type="time" x-model="pauseWindowDraft.end"
               class="border border-shell-border rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 tabular-nums">
           </div>
-          <button type="submit"
-            class="bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold rounded-md px-3 py-2 transition">
-            Ajouter
-          </button>
-          <button type="button" @click="savePauseWindows" :disabled="pauseWindowsSaving"
-            class="bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold rounded-md px-4 py-2 transition">
+          <button type="submit" :disabled="pauseWindowsSaving"
+            class="bg-brand-500 hover:bg-brand-600 disabled:opacity-40 text-white text-xs font-semibold rounded-md px-3 py-2 transition">
             <span x-show="pauseWindowsSaving">Enregistrement…</span>
-            <span x-show="!pauseWindowsSaving">Enregistrer les plages</span>
+            <span x-show="!pauseWindowsSaving">Ajouter</span>
           </button>
         </form>
         <p x-show="pauseWindowsError" x-cloak class="mt-2 text-xs text-red-500" x-text="pauseWindowsError"></p>
@@ -1048,7 +1068,7 @@
                         <option value="">Non classé</option>
                         <option value="__ignore__">Ignorer</option>
                         <template x-for="offer in mappingOfferOptions" :key="offer.code">
-                          <option :value="offer.code" x-text="offer.label"></option>
+                          <option :value="offer.code" x-text="mappingOfferLabel(offer)"></option>
                         </template>
                       </select>
                     </td>
@@ -1285,7 +1305,7 @@
           <dl class="space-y-3">
             <div>
               <dt class="text-xs font-semibold text-slate-800">Quotas forcés par offre</dt>
-              <dd class="text-sm text-slate-600">Bande repliable au-dessus du tableau. Repliée, elle indique combien d’offres sont bloquées et combien de quotas sont forcés. Dépliée : compteur en pause / quota, et champ pour imposer un plafond fixe (vide = désactivé). Le % et l’effectif planifié ne se règlent pas ici.</dd>
+              <dd class="text-sm text-slate-600">Bande repliable au-dessus du tableau. Repliée, elle indique combien d’offres sont bloquées et combien de quotas sont forcés. Dépliée : compteur en pause / quota, et champ pour imposer un plafond fixe (vide = désactivé). Le % et l’effectif planifié ne se règlent pas ici. Une offre désactivée n’apparaît que s’il reste une pause en cours, avec le badge « Désactivée ».</dd>
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">MODE URGENCE</dt>
@@ -1309,6 +1329,10 @@
             <div>
               <dt class="text-xs font-semibold text-slate-800">Règle sous l’offre</dt>
               <dd class="text-sm text-slate-600">Rappelle comment le quota autorisé est calculé (quota forcé, % des planifiés, ou défaut).</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Offre désactivée</dt>
+              <dd class="text-sm text-slate-600">Ligne conservée si des effectifs sont encore planifiés ce jour (badge « Désactivée », quotas assombris). Une offre désactivée sans créneau ce jour n’apparaît pas.</dd>
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">Créneaux de 15 min</dt>
@@ -1394,7 +1418,7 @@
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">Général — Fenêtres de pause autorisées</dt>
-              <dd class="text-sm text-slate-600">Liste de plages début–fin pendant lesquelles un départ en pause est possible. Vide = ouvert 24 h. Sinon, hors plage, aucun nouveau départ (quota 0). Les pauses déjà commencées ne sont pas coupées.</dd>
+              <dd class="text-sm text-slate-600">Liste de plages début–fin pendant lesquelles un départ en pause est possible. Vide = ouvert 24 h. Sinon, hors plage, aucun nouveau départ (quota 0). Les pauses déjà commencées ne sont pas coupées. Ajouter et Supprimer enregistrent tout de suite.</dd>
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">Offres — % autorisé</dt>
@@ -1402,7 +1426,7 @@
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">Offres — Nouvelle / Modifier / Désactiver / Supprimer</dt>
-              <dd class="text-sm text-slate-600">Une offre = une équipe (nom, quota par défaut, %, couleur). <span class="font-medium text-slate-800">Désactiver</span> la range : plus de nouveaux départs, pauses en cours intactes, réactivation possible (liste masquée, interrupteur « Afficher les désactivées »). <span class="font-medium text-slate-800">Supprimer définitivement</span> la fait disparaître de l’appli. Si des pauses sont en cours, la suppression est refusée. S’il reste de l’historique, le nom continue d’apparaître dans l’historique jusqu’à la purge automatique ; sinon la suppression est immédiate.</dd>
+              <dd class="text-sm text-slate-600">Une offre = une équipe (nom, quota par défaut, %, couleur). <span class="font-medium text-slate-800">Désactiver</span> la range : plus de nouveaux départs, pauses en cours intactes, réactivation possible (liste masquée, interrupteur « Afficher les désactivées »). Temps réel la masque sauf pause en cours ; la grille la garde si du planning reste ce jour. <span class="font-medium text-slate-800">Supprimer définitivement</span> la fait disparaître de l’appli. Si des pauses sont en cours, la suppression est refusée. S’il reste de l’historique, le nom continue d’apparaître dans l’historique jusqu’à la purge automatique ; sinon la suppression est immédiate.</dd>
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">Planning — Importation</dt>
@@ -1410,7 +1434,7 @@
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">Planning — Correspondance</dt>
-              <dd class="text-sm text-slate-600">Plusieurs libellés WFM peuvent viser la même offre. « Ignorer » écarte le libellé. Enregistrer recalcule la grille sans renvoyer le CSV.</dd>
+              <dd class="text-sm text-slate-600">Plusieurs libellés WFM peuvent viser la même offre. « Ignorer » écarte le libellé. Une offre désactivée reste dans la liste, suffixée « (désactivée) », pour pouvoir la débrancher. Enregistrer recalcule la grille sans renvoyer le CSV.</dd>
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">Accès — PIN</dt>
@@ -1715,12 +1739,21 @@ function supervisorApp() {
       return rows.filter((o) => o.is_active === true);
     },
 
-    get planningGridRows() {
-      return (this.planningSlots || []).map((offer) => {
-        const bySlot = {};
-        for (const s of offer.slots || []) bySlot[s.slotMinutes] = s;
-        return { ...offer, bySlot };
+    get visibleLiveQuotas() {
+      return (this.quotas || []).filter((q) => {
+        if (q.offer?.is_active !== false) return true;
+        return Number(q.currentPaused) > 0;
       });
+    },
+
+    get planningGridRows() {
+      return (this.planningSlots || [])
+        .filter((offer) => this.planningOfferActive(offer) || (offer.slots || []).length > 0)
+        .map((offer) => {
+          const bySlot = {};
+          for (const s of offer.slots || []) bySlot[s.slotMinutes] = s;
+          return { ...offer, bySlot };
+        });
     },
 
     get planningSlotColumns() {
@@ -1913,8 +1946,9 @@ function supervisorApp() {
     },
 
     liveOverrideSummary() {
-      const blocked = this.quotas.filter((q) => q.blocked).length;
-      const overrides = this.quotas.filter((q) => this.hasQuotaOverride(q)).length;
+      const rows = this.visibleLiveQuotas;
+      const blocked = rows.filter((q) => q.blocked).length;
+      const overrides = rows.filter((q) => this.hasQuotaOverride(q)).length;
       return `${blocked} offres bloquées / ${overrides} quotas forcés`;
     },
 
@@ -2006,6 +2040,20 @@ function supervisorApp() {
     },
 
     // ── Planning ─────────────────────────────────
+    mappingOfferLabel(offer) {
+      const name = offer?.label || offer?.code || '';
+      return offer?.is_active === false ? `${name} (désactivée)` : name;
+    },
+
+    planningOfferActive(offer) {
+      if (!offer) return false;
+      if (typeof offer.isActive === 'boolean') return offer.isActive;
+      if (typeof offer.is_active === 'boolean') return offer.is_active;
+      const q = (this.quotas || []).find((x) => x.offer?.code === offer.offerCode);
+      if (q) return q.offer.is_active !== false;
+      return true;
+    },
+
     mappingStatusLabel(row) {
       if (row.offerCode === '__ignore__') return 'Ignoré';
       if (row.offerCode) return 'Associé';
@@ -2031,7 +2079,8 @@ function supervisorApp() {
     },
 
     planningCellClass(row, minutes) {
-      return this.isCurrentPlanningSlot(minutes) ? 'bg-brand-500/15' : '';
+      if (!this.isCurrentPlanningSlot(minutes)) return '';
+      return this.planningOfferActive(row) ? 'bg-brand-500/15' : 'bg-slate-100';
     },
 
     planningQuotaRule(row) {
@@ -2233,7 +2282,7 @@ function supervisorApp() {
       }
     },
 
-    addPauseWindow() {
+    async addPauseWindow() {
       this.pauseWindowsError = '';
       const startRaw = String(this.pauseWindowDraft.start || '').trim();
       const endRaw = String(this.pauseWindowDraft.end || '').trim();
@@ -2255,10 +2304,12 @@ function supervisorApp() {
       const endLabel = formatSlotMinutes(end);
       this.pauseWindows = [...this.pauseWindows, { start: startLabel, end: endLabel }];
       this.pauseWindowDraft = { start: '', end: '' };
+      await this.savePauseWindows();
     },
 
-    removePauseWindow(idx) {
+    async removePauseWindow(idx) {
       this.pauseWindows = this.pauseWindows.filter((_, i) => i !== idx);
+      await this.savePauseWindows();
     },
 
     async savePauseWindows() {
@@ -2275,6 +2326,7 @@ function supervisorApp() {
         const data = await res.json();
         if (!res.ok) {
           this.pauseWindowsError = data.error?.message || 'Enregistrement refusé.';
+          await this.loadSettings();
           return;
         }
         this.pauseWindows = data.windows || [];
@@ -2283,6 +2335,7 @@ function supervisorApp() {
         setTimeout(() => { this.pauseWindowsMsg = ''; }, 4000);
       } catch {
         this.pauseWindowsError = 'Erreur réseau.';
+        await this.loadSettings();
       } finally {
         this.pauseWindowsSaving = false;
       }
@@ -2887,7 +2940,7 @@ function supervisorApp() {
         this.offerMsgOk = true;
         this.offerMsg = 'Offre désactivée.';
         if (this.expandedOfferCode === offer.code) this.expandedOfferCode = null;
-        await Promise.all([this.loadOffersAdmin(), this.loadQuotas()]);
+        await Promise.all([this.loadOffersAdmin(), this.loadQuotas(), this.loadPlanningSlots()]);
       } catch {
         this.offerError = 'Erreur réseau.';
       } finally {
@@ -2919,7 +2972,7 @@ function supervisorApp() {
         }
         this.offerMsgOk = true;
         this.offerMsg = 'Offre réactivée.';
-        await Promise.all([this.loadOffersAdmin(), this.loadQuotas()]);
+        await Promise.all([this.loadOffersAdmin(), this.loadQuotas(), this.loadPlanningSlots()]);
       } catch {
         this.offerError = 'Erreur réseau.';
       } finally {
@@ -2952,7 +3005,7 @@ function supervisorApp() {
         this.offerMsgOk = true;
         this.offerMsg = data.message || 'Offre supprimée.';
         if (this.expandedOfferCode === offer.code) this.expandedOfferCode = null;
-        await Promise.all([this.loadOffersAdmin(), this.loadQuotas()]);
+        await Promise.all([this.loadOffersAdmin(), this.loadQuotas(), this.loadPlanningSlots()]);
       } catch {
         this.offerError = 'Erreur réseau.';
       } finally {
