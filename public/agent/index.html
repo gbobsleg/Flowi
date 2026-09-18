@@ -948,11 +948,16 @@ function agentApp() {
         if (!evt) return;
         if (evt.maxPauseMinutes !== undefined) { this.maxPauseMinutes = evt.maxPauseMinutes; this.updateThresholds(); }
         if (evt.pauseWindows) this.applyPauseWindowsPayload(evt.pauseWindows);
-        if (evt.maxPausesPerAgent !== undefined && this.agent_matricule) this.bootstrap();
         if (evt.anonymizeAgentNames !== undefined) {
           this.anonymizeAgentNames = evt.anonymizeAgentNames === true;
-          this.bootstrap();
         }
+        const reloadBudget = !!(
+          evt.pauseWindows
+          || evt.maxPauseMinutes !== undefined
+          || evt.maxPausesPerAgent !== undefined
+          || evt.anonymizeAgentNames !== undefined
+        );
+        if (reloadBudget && this.agent_matricule) this.bootstrap();
       });
 
       this._socket = socket;

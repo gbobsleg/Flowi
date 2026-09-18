@@ -1587,7 +1587,7 @@
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">Départs restants / Temps restant</dt>
-              <dd class="text-sm text-slate-600">Crédit de l’agent sur la plage ouverte (Illimité si aucun plafond de départs). Hors plage, les colonnes indiquent « Hors plage ». Ignorer une pause dans l’historique met à jour ces colonnes tout de suite.</dd>
+              <dd class="text-sm text-slate-600">Crédit de l’agent sur la plage ouverte (Illimité si aucun plafond de départs). Hors plage, les colonnes indiquent « Hors plage ». Mis à jour tout de suite après un départ, un retour, Ignorer / Rétablir, ou un changement de plages / durée / nombre de pauses.</dd>
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">Pastille Session</dt>
@@ -1910,6 +1910,7 @@ function supervisorApp() {
     directoryRows: [],
     directoryLoading: false,
     directoryLoaded: false,
+    directoryCreditsAt: Date.now(),
     directorySaving: false,
     directoryError: '',
     directoryMsg: '',
@@ -2100,7 +2101,7 @@ function supervisorApp() {
 
       this.$watch('activeTab', async (value) => {
         if (!this.isAuth) return;
-        if (value === 'directory') await this.loadDirectory();
+        if (value === 'directory') await this.loadDirectory(true);
         else if (value === 'settings') await this.loadSettingsSubtabData(this.settingsSubtab);
         else if (value === 'grid') await this.loadPlanningSlots();
         else if (value === 'about') await this.loadAbout();
@@ -2949,8 +2950,28 @@ function supervisorApp() {
     applyDirectoryPauseBudget(matricule, pauseBudget) {
       if (!matricule || !pauseBudget) return;
       const agent = this.directoryRows.find(a => a.matricule === matricule);
-      if (agent) agent.pauseBudget = pauseBudget;
+      if (agent) {
+        agent.pauseBudget = pauseBudget;
+        agent._creditsAt = Date.now();
+      }
       this.directoryLoaded = false;
+    },
+
+    applyDirectoryCredits(evt) {
+      if (!evt || typeof evt !== 'object') return;
+      if (!this.directoryRows.length) {
+        this.directoryLoaded = false;
+        return;
+      }
+      const by = evt.budgetByMatricule || {};
+      const empty = evt.emptyBudget;
+      const stamped = Date.now();
+      this.directoryCreditsAt = stamped;
+      for (const agent of this.directoryRows) {
+        if (evt.pauseWindowOpen !== undefined) agent.pauseWindowOpen = evt.pauseWindowOpen;
+        agent.pauseBudget = by[agent.matricule] || empty || agent.pauseBudget;
+        agent._creditsAt = stamped;
+      }
     },
 
     // ── Annuaire ────────────────────────────────
@@ -2969,7 +2990,9 @@ function supervisorApp() {
             ...a,
             _saving: false,
             _releasing: false,
+            _creditsAt: Date.now(),
           }));
+          this.directoryCreditsAt = Date.now();
           this.directoryLoaded = true;
         } else {
           this.directoryError = data.error?.message || "Impossible de charger l'annuaire.";
@@ -3946,6 +3969,9 @@ function supervisorApp() {
           });
         }
         this._updateQuotaCounter(evt.offerCode);
+        if (evt.pauseBudget && evt.agent_matricule) {
+          this.applyDirectoryPauseBudget(evt.agent_matricule, evt.pauseBudget);
+        }
       });
 
       socket.on('pause:stopped', (evt) => {
@@ -3953,6 +3979,9 @@ function supervisorApp() {
         this._updateQuotaCounter(evt.offerCode);
         // Recharger la page d'historique courante si on est sur cet onglet
         if (this.activeTab === 'history') this.loadHistory(this.histPagination.page);
+        if (evt.pauseBudget && evt.agent_matricule) {
+          this.applyDirectoryPauseBudget(evt.agent_matricule, evt.pauseBudget);
+        }
       });
 
       socket.on('quota:updated', (evt) => {
@@ -3988,6 +4017,7 @@ function supervisorApp() {
 
       // Paramètres système mis à jour depuis une autre session
       socket.on('system:settings-updated', (evt) => {
+        if (!evt) return;
         if (evt.maxPauseMinutes !== undefined) { this.settings.maxPauseMinutes = evt.maxPauseMinutes; this.updateThresholds(); }
         if (evt.maxPausesPerAgent !== undefined) {
           this.settings.maxPausesPerAgent = evt.maxPausesPerAgent == null ? '' : String(evt.maxPausesPerAgent);
@@ -3995,6 +4025,10 @@ function supervisorApp() {
         if (evt.anonymizeAgentNames !== undefined) {
           this.settings.anonymizeAgentNames = evt.anonymizeAgentNames === true;
         }
+      });
+
+      socket.on('directory:credits-updated', (evt) => {
+        this.applyDirectoryCredits(evt);
       });
 
       // Mode urgence diffusé par le serveur
@@ -4066,9 +4100,21 @@ function supervisorApp() {
       if (n === null || n === undefined) return 'Illimité';
       return String(n);
     },
+    directoryAgentOnPause(matricule) {
+      return this.livePauses.some(p => p.agent_matricule === matricule);
+    },
+    directoryRemainingSeconds(agent) {
+      const _tick = this._now;
+      let sec = Number(agent.pauseBudget?.remainingSeconds);
+      if (!Number.isFinite(sec)) sec = 0;
+      if (!this.directoryAgentOnPause(agent.matricule)) return sec;
+      const origin = agent._creditsAt || this.directoryCreditsAt || _tick;
+      const extra = Math.max(0, Math.floor((_tick - origin) / 1000));
+      return Math.max(0, sec - extra);
+    },
     directoryTimeLabel(agent) {
       if (agent.pauseWindowOpen === false) return 'Hors plage';
-      return this.formatRemainingSpoken(agent.pauseBudget?.remainingSeconds);
+      return this.formatRemainingSpoken(this.directoryRemainingSeconds(agent));
     },
     formatTime(iso) {
       if (!iso) return '—';

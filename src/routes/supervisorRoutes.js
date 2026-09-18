@@ -3,7 +3,7 @@ const multer  = require('multer');
 const router  = express.Router();
 const db      = require('../db');
 const { createSession, validatePin, requireSupervisor } = require('../middlewares/supervisorAuth');
-const { effectiveQuota, countActivePauses, emitOfferUpdate, emitQuotasUpdate, allowedFromHeadcount, getParisClock, loadAgentPauseBudget, loadDirectoryPauseCredits } = require('./agentRoutes');
+const { effectiveQuota, countActivePauses, emitOfferUpdate, emitQuotasUpdate, allowedFromHeadcount, getParisClock, loadAgentPauseBudget, loadDirectoryPauseCredits, emitDirectoryCredits } = require('./agentRoutes');
 const { Errors, apiError, isValidOfferCode, newOfferCode, isPositiveInt, isPercent } = require('../middlewares/validate');
 const { importGenesysBuffer, analyseGenesysBuffer, GenesysImportError, canonicalWfmLabel, slotsByDay } = require('../services/genesysPlanningImport');
 const { pauseWindowStatus } = require('../lib/pauseWindows');
@@ -897,6 +897,7 @@ router.post('/pause/force-stop', requireSupervisor, async (req, res) => {
       broadcastPauseEvent(io, 'pause:stopped', payload, await loadAnonymizeAgentNames());
       await emitOfferUpdate(io, offerCode, result.pause.offer_id_val);
       await emitQuotasUpdate(io);
+      await emitDirectoryCredits(io);
     }
 
     res.json({
@@ -1030,6 +1031,7 @@ router.patch('/pauses/:id', requireSupervisor, async (req, res) => {
     const io = req.app.get('io');
     if (io) {
       io.to(`agent:${updated.agent_matricule}`).emit('pause:budget-updated', { pauseBudget });
+      await emitDirectoryCredits(io);
     }
 
     res.json({ pause: updated, pauseBudget });
@@ -1192,7 +1194,10 @@ router.put('/settings/max-pause-minutes', requireSupervisor, async (req, res) =>
     await db.query(UPSERT_SETTING, ['max_pause_minutes', String(minutes)]);
 
     const io = req.app.get('io');
-    if (io) io.emit('system:settings-updated', { maxPauseMinutes: minutes });
+    if (io) {
+      io.emit('system:settings-updated', { maxPauseMinutes: minutes });
+      await emitDirectoryCredits(io);
+    }
 
     res.json({ maxPauseMinutes: minutes });
   } catch (err) {
@@ -1223,7 +1228,10 @@ router.put('/settings/max-pauses-per-agent', requireSupervisor, async (req, res)
     await db.query(UPSERT_SETTING, ['max_pauses_per_agent', stored]);
 
     const io = req.app.get('io');
-    if (io) io.emit('system:settings-updated', { maxPausesPerAgent: maxPauses });
+    if (io) {
+      io.emit('system:settings-updated', { maxPausesPerAgent: maxPauses });
+      await emitDirectoryCredits(io);
+    }
 
     res.json({ maxPausesPerAgent: maxPauses });
   } catch (err) {
@@ -1288,6 +1296,7 @@ router.put('/settings/pause-windows', requireSupervisor, async (req, res) => {
     if (io) {
       await emitQuotasUpdate(io);
       io.emit('system:settings-updated', { pauseWindows });
+      await emitDirectoryCredits(io);
     }
 
     res.json({ windows: normalized });

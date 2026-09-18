@@ -152,6 +152,20 @@ async function loadDirectoryPauseCredits(client, now = new Date()) {
   return { pauseWindowOpen, budgetByMatricule, emptyBudget };
 }
 
+async function emitDirectoryCredits(io) {
+  if (!io || typeof io.to !== 'function') return;
+  try {
+    const credits = await loadDirectoryPauseCredits();
+    io.to('supervisor').emit('directory:credits-updated', {
+      pauseWindowOpen: credits.pauseWindowOpen,
+      budgetByMatricule: credits.budgetByMatricule,
+      emptyBudget: credits.emptyBudget,
+    });
+  } catch (err) {
+    console.error('[directory credits]', err);
+  }
+}
+
 /** floor(headcount × %) ; minimum 1 dès qu’il y a au moins une tête planifiée. */
 function allowedFromHeadcount(headcount, percent) {
   const n = Number(headcount);
@@ -506,6 +520,7 @@ router.post('/pause/start', async (req, res) => {
 
       await emitOfferUpdate(io, offerCode, offer.id);
       await emitQuotasUpdate(io);
+      await emitDirectoryCredits(io);
     }
 
     res.status(201).json({
@@ -574,6 +589,7 @@ router.post('/pause/stop', async (req, res) => {
 
       await emitOfferUpdate(io, offerCode, result.pause.offer_id_val);
       await emitQuotasUpdate(io);
+      await emitDirectoryCredits(io);
     }
 
     res.json({
@@ -599,4 +615,5 @@ module.exports = {
   loadPauseWindowStatus,
   loadAgentPauseBudget,
   loadDirectoryPauseCredits,
+  emitDirectoryCredits,
 };

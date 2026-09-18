@@ -7,7 +7,7 @@ const path         = require('path');
 
 const config      = require('./config');
 const db          = require('./db');
-const { router: agentRouter, buildSnapshot, emitOfferUpdate, emitQuotasUpdate, getParisClock, loadAgentPauseBudget } = require('./routes/agentRoutes');
+const { router: agentRouter, buildSnapshot, emitOfferUpdate, emitQuotasUpdate, getParisClock, loadAgentPauseBudget, emitDirectoryCredits } = require('./routes/agentRoutes');
 const supervisorRouter = require('./routes/supervisorRoutes');
 const systemRouter     = require('./routes/systemRoutes');
 const {
@@ -243,6 +243,7 @@ async function closeExpiredPauses() {
     await emitOfferUpdate(io, p.offer_code, p.offer_id_val);
     await emitQuotasUpdate(io);
   }
+  await emitDirectoryCredits(io);
 }
 
 async function purgeHistory() {
