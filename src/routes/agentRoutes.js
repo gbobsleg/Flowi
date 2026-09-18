@@ -5,6 +5,7 @@ const { Errors, isValidOfferCode } = require('../middlewares/validate');
 const { parsePauseWindows, pauseWindowStatus } = require('../lib/pauseWindows');
 const {
   SQL_AGENT_DAY_PAUSES,
+  SQL_DAY_PAUSES,
   parisDayBounds,
   parseMaxPauses,
   computePauseBudget,
@@ -106,6 +107,49 @@ async function loadAgentPauseBudget(matricule, client, now = new Date()) {
     maxPauses,
     now,
   });
+}
+
+async function loadDirectoryPauseCredits(client, now = new Date()) {
+  const clock = getParisClock(now);
+  const { start, end } = parisDayBounds(clock.day);
+  const windowStatus = await loadPauseWindowStatus(client);
+  const windowsRow = await qOne(
+    "SELECT value FROM app_settings WHERE key = 'pause_windows'",
+    [],
+    client
+  );
+  const windows = parsePauseWindows(windowsRow && windowsRow.value);
+  const maxPauseMinutes = await loadMaxPauseMinutes(client);
+  const maxPauses = await loadMaxPausesPerAgent(client);
+  const rows = await qAll(SQL_DAY_PAUSES, [start.toISOString(), end.toISOString()], client);
+  const byMatricule = new Map();
+  for (const pause of rows) {
+    if (pause.excluded_from_budget === true) continue;
+    const key = pause.agent_matricule;
+    if (!byMatricule.has(key)) byMatricule.set(key, []);
+    byMatricule.get(key).push(pause);
+  }
+  const pauseWindowOpen = windowStatus.open === true;
+  const budgetByMatricule = {};
+  for (const [matricule, pauses] of byMatricule) {
+    budgetByMatricule[matricule] = computePauseBudget({
+      pauses,
+      windows,
+      minutesOfDay: clock.minutesOfDay,
+      maxPauseMinutes,
+      maxPauses,
+      now,
+    });
+  }
+  const emptyBudget = computePauseBudget({
+    pauses: [],
+    windows,
+    minutesOfDay: clock.minutesOfDay,
+    maxPauseMinutes,
+    maxPauses,
+    now,
+  });
+  return { pauseWindowOpen, budgetByMatricule, emptyBudget };
 }
 
 /** floor(headcount × %) ; minimum 1 dès qu’il y a au moins une tête planifiée. */
@@ -554,4 +598,5 @@ module.exports = {
   allowedFromHeadcount,
   loadPauseWindowStatus,
   loadAgentPauseBudget,
+  loadDirectoryPauseCredits,
 };

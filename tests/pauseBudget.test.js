@@ -192,6 +192,38 @@ describe('computePauseBudget', () => {
     assert.equal(budget.reason, 'budget');
   });
 
+  it('pause excluded_from_budget ignorée : pot de nouveau plein', () => {
+    const counted = pauseAt('10:00', 15 * 60);
+    const ignored = { ...pauseAt('10:05', 15 * 60), excluded_from_budget: true };
+    const budget = computePauseBudget({
+      pauses: [counted, ignored],
+      windows: WINDOWS,
+      minutesOfDay: 10 * 60 + 30,
+      maxPauseMinutes: 15,
+      maxPauses: 3,
+      now: NOW_1030,
+    });
+    assert.equal(budget.canStart, false);
+    assert.equal(budget.startsUsed, 1);
+    assert.equal(budget.remainingSeconds, 0);
+  });
+
+  it('seule pause du pot exclue → 15 min et canStart', () => {
+    const ignored = { ...pauseAt('10:00', 15 * 60), excluded_from_budget: true };
+    const budget = computePauseBudget({
+      pauses: [ignored],
+      windows: WINDOWS,
+      minutesOfDay: 10 * 60 + 30,
+      maxPauseMinutes: 15,
+      maxPauses: 1,
+      now: NOW_1030,
+    });
+    assert.equal(budget.canStart, true);
+    assert.equal(budget.startsUsed, 0);
+    assert.equal(budget.remainingSeconds, 15 * 60);
+    assert.equal(budget.remainingStarts, 1);
+  });
+
   it('hors plage : rien n’est imputé à une fenêtre inexistante', () => {
     const budget = computePauseBudget({
       pauses: [pauseAt('10:05', 5 * 60)],

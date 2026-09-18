@@ -405,11 +405,13 @@
                       x-text="histSort.dir === 'asc' ? '↑' : '↓'"></span>
                   </th>
                 </template>
+                <th class="px-4 py-3 text-right font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
               <template x-for="row in histSorted" :key="row.id">
-                <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+                <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors"
+                  :class="row.excluded_from_budget ? 'opacity-60' : ''">
                   <td class="px-4 py-3 font-medium text-slate-700" x-text="`${row.prenom} ${row.nom}`"></td>
                   <td class="px-4 py-3">
                     <span class="inline-block bg-slate-100 text-slate-700 text-xs rounded px-1.5 py-0.5"
@@ -421,15 +423,33 @@
                   <td class="px-4 py-3 font-mono tabular-nums text-xs"
                     x-text="row.duration_seconds != null ? formatDuration(row.duration_seconds) : '—'"></td>
                   <td class="px-4 py-3">
-                    <span
-                      class="inline-block rounded-full px-2 py-0.5 text-xs font-medium"
-                      :class="{
-                        'bg-slate-100 text-slate-600':  row.end_reason === 'manual',
-                        'bg-amber-100 text-amber-700':  row.end_reason === 'auto_15m',
-                        'bg-red-100 text-red-600':      row.end_reason === 'supervisor_forced',
-                      }"
-                      x-text="endReasonLabel(row.end_reason, row)"
-                    ></span>
+                    <div class="flex flex-wrap items-center gap-1">
+                      <span
+                        class="inline-block rounded-full px-2 py-0.5 text-xs font-medium"
+                        :class="{
+                          'bg-slate-100 text-slate-600':  row.end_reason === 'manual',
+                          'bg-amber-100 text-amber-700':  row.end_reason === 'auto_15m',
+                          'bg-red-100 text-red-600':      row.end_reason === 'supervisor_forced',
+                        }"
+                        x-text="endReasonLabel(row.end_reason, row)"
+                      ></span>
+                      <span
+                        x-show="row.excluded_from_budget"
+                        class="inline-block rounded-full px-2 py-0.5 text-xs font-medium bg-slate-200 text-slate-700"
+                      >Ignorée</span>
+                    </div>
+                  </td>
+                  <td class="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      @click="setPauseExcludedFromBudget(row, !row.excluded_from_budget)"
+                      :disabled="row._excluding"
+                      class="text-xs font-medium rounded-lg px-3 py-1.5 transition disabled:opacity-40"
+                      :class="row.excluded_from_budget
+                        ? 'text-brand-700 hover:bg-brand-50'
+                        : 'text-slate-600 hover:bg-slate-100'"
+                      x-text="row._excluding ? '…' : (row.excluded_from_budget ? 'Rétablir' : 'Ignorer')"
+                    ></button>
                   </td>
                 </tr>
               </template>
@@ -519,6 +539,8 @@
                 <th class="px-4 py-3 text-left font-medium">Prénom</th>
                 <th class="px-4 py-3 text-left font-medium">Statut</th>
                 <th class="px-4 py-3 text-left font-medium">Session</th>
+                <th class="px-4 py-3 text-left font-medium">Départs restants</th>
+                <th class="px-4 py-3 text-left font-medium">Temps restant</th>
                 <th class="px-4 py-3 text-right font-medium">Actions</th>
               </tr>
             </thead>
@@ -560,6 +582,8 @@
                       </button>
                     </div>
                   </td>
+                  <td class="px-4 py-3 text-xs tabular-nums text-slate-700" x-text="directoryStartsLabel(agent)"></td>
+                  <td class="px-4 py-3 text-xs tabular-nums text-slate-700" x-text="directoryTimeLabel(agent)"></td>
                   <td class="px-4 py-3 text-right">
                     <button
                       @click="toggleDirectoryAgentStatus(agent)"
@@ -1542,6 +1566,10 @@
                 <span class="font-medium text-slate-800">Forcé superviseur</span> : bouton Forcer retour sur Temps réel.
               </dd>
             </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Ignorer / Rétablir</dt>
+              <dd class="text-sm text-slate-600">Ignorer : la ligne reste dans l’historique, elle n’est pas effacée. En revanche elle n’est plus décomptée : l’agent récupère le temps de pause et le droit de repartir associés. Utile après une fausse manip. Une pause en cours doit d’abord être coupée (Forcer retour). Rétablir annule l’ignore.</dd>
+            </div>
           </dl>
         </section>
 
@@ -1555,7 +1583,11 @@
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">Rafraîchir</dt>
-              <dd class="text-sm text-slate-600">Recharge la liste.</dd>
+              <dd class="text-sm text-slate-600">Recharge la liste et les crédits de pause (départs et temps restants sur la plage en cours, ou la journée s’il n’y a aucune plage). Hors plage : « Hors plage ».</dd>
+            </div>
+            <div>
+              <dt class="text-xs font-semibold text-slate-800">Départs restants / Temps restant</dt>
+              <dd class="text-sm text-slate-600">Crédit de l’agent sur la plage ouverte (Illimité si aucun plafond de départs). Hors plage, les colonnes indiquent « Hors plage ». Ignorer une pause dans l’historique met à jour ces colonnes tout de suite.</dd>
             </div>
             <div>
               <dt class="text-xs font-semibold text-slate-800">Pastille Session</dt>
@@ -2869,7 +2901,7 @@ function supervisorApp() {
           cache: 'no-store',
         });
         const data = await res.json();
-        this.histRows       = data.rows       || [];
+        this.histRows       = (data.rows || []).map((row) => ({ ...row, _excluding: false }));
         this.histPagination = data.pagination || { page: 1, limit: 50, total: 0, pages: 0 };
       } catch { /* silencieux */ }
       finally { this.histLoading = false; }
@@ -2882,6 +2914,43 @@ function supervisorApp() {
         this.histSort.key = key;
         this.histSort.dir = (key === 'start_time' || key === 'start_date') ? 'desc' : 'asc';
       }
+    },
+
+    async setPauseExcludedFromBudget(row, excluded) {
+      const confirmMsg = excluded
+        ? 'Cette pause ne sera pas supprimée : elle restera dans l’historique.\n\nEn revanche, elle ne sera plus décomptée : l’agent récupère le temps de pause et le droit de repartir en pause associés à cette ligne.'
+        : 'Cette pause sera de nouveau décomptée. Le temps de pause restant et le droit de repartir de l’agent seront recalculés comme si elle avait bien eu lieu.';
+      if (!confirm(confirmMsg)) return;
+      row._excluding = true;
+      try {
+        const res = await fetch(`/api/supervisor/pauses/${row.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ excluded_from_budget: excluded }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert(data.error?.message || 'Erreur.');
+          return;
+        }
+        row.excluded_from_budget = data.pause?.excluded_from_budget === true;
+        this.applyDirectoryPauseBudget(
+          data.pause?.agent_matricule || row.agent_matricule,
+          data.pauseBudget
+        );
+      } catch {
+        alert('Erreur réseau.');
+      } finally {
+        row._excluding = false;
+      }
+    },
+
+    applyDirectoryPauseBudget(matricule, pauseBudget) {
+      if (!matricule || !pauseBudget) return;
+      const agent = this.directoryRows.find(a => a.matricule === matricule);
+      if (agent) agent.pauseBudget = pauseBudget;
+      this.directoryLoaded = false;
     },
 
     // ── Annuaire ────────────────────────────────
@@ -3982,6 +4051,24 @@ function supervisorApp() {
       const m = Math.floor(totalSec / 60).toString().padStart(2, '0');
       const s = (totalSec % 60).toString().padStart(2, '0');
       return `${m}:${s}`;
+    },
+    formatRemainingSpoken(totalSec) {
+      const s = Math.max(0, Math.floor(Number(totalSec) || 0));
+      const m = Math.floor(s / 60);
+      const r = s % 60;
+      if (m === 0) return `${r} s`;
+      if (r === 0) return `${m} min`;
+      return `${m} min ${r} s`;
+    },
+    directoryStartsLabel(agent) {
+      if (agent.pauseWindowOpen === false) return 'Hors plage';
+      const n = agent.pauseBudget?.remainingStarts;
+      if (n === null || n === undefined) return 'Illimité';
+      return String(n);
+    },
+    directoryTimeLabel(agent) {
+      if (agent.pauseWindowOpen === false) return 'Hors plage';
+      return this.formatRemainingSpoken(agent.pauseBudget?.remainingSeconds);
     },
     formatTime(iso) {
       if (!iso) return '—';

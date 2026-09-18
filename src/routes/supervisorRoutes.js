@@ -3,7 +3,7 @@ const multer  = require('multer');
 const router  = express.Router();
 const db      = require('../db');
 const { createSession, validatePin, requireSupervisor } = require('../middlewares/supervisorAuth');
-const { effectiveQuota, countActivePauses, emitOfferUpdate, emitQuotasUpdate, allowedFromHeadcount, getParisClock, loadAgentPauseBudget } = require('./agentRoutes');
+const { effectiveQuota, countActivePauses, emitOfferUpdate, emitQuotasUpdate, allowedFromHeadcount, getParisClock, loadAgentPauseBudget, loadDirectoryPauseCredits } = require('./agentRoutes');
 const { Errors, apiError, isValidOfferCode, newOfferCode, isPositiveInt, isPercent } = require('../middlewares/validate');
 const { importGenesysBuffer, analyseGenesysBuffer, GenesysImportError, canonicalWfmLabel, slotsByDay } = require('../services/genesysPlanningImport');
 const { pauseWindowStatus } = require('../lib/pauseWindows');
@@ -368,9 +368,12 @@ router.get('/agents', requireSupervisor, async (req, res) => {
       return Errors.invalidType(res, 'status', 'active|inactive');
     }
 
+    const credits = await loadDirectoryPauseCredits();
     const enrichedRows = rows.map(agent => ({
       ...agent,
       isOnline: hasActiveSession(agent.matricule),
+      pauseWindowOpen: credits.pauseWindowOpen,
+      pauseBudget: credits.budgetByMatricule[agent.matricule] || credits.emptyBudget,
     }));
 
     res.json({ agents: enrichedRows });
@@ -964,7 +967,8 @@ router.get('/history', requireSupervisor, async (req, res) => {
 
     const rows = await db.queryAll(
       `SELECT p.id, p.agent_matricule, a.nom, a.prenom, o.code AS offer_code, o.label AS offer_label,
-              p.start_time, p.end_time, p.end_reason, p.duration_seconds, p.max_minutes_at_end
+              p.start_time, p.end_time, p.end_reason, p.duration_seconds, p.max_minutes_at_end,
+              p.excluded_from_budget
        FROM pauses p
        JOIN agents a ON a.matricule = p.agent_matricule
        JOIN offers o ON o.id = p.offer_id
@@ -981,6 +985,54 @@ router.get('/history', requireSupervisor, async (req, res) => {
     const total = Number(countRow.total);
 
     res.json({ rows, pagination: { page, limit, total, pages: Math.ceil(total / limit) } });
+  } catch (err) {
+    Errors.internal(res, err);
+  }
+});
+
+/**
+ * PATCH /api/supervisor/pauses/:id
+ * Body: { excluded_from_budget: boolean }
+ * Pause terminée uniquement. Recalcule le pot de l’agent.
+ */
+router.patch('/pauses/:id', requireSupervisor, async (req, res) => {
+  try {
+    if (!req.body || !Object.prototype.hasOwnProperty.call(req.body, 'excluded_from_budget')) {
+      return Errors.missingField(res, 'excluded_from_budget');
+    }
+    const excluded = req.body.excluded_from_budget;
+    if (typeof excluded !== 'boolean') {
+      return Errors.invalidType(res, 'excluded_from_budget', 'boolean');
+    }
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isInteger(id) || id < 1) {
+      return Errors.invalidType(res, 'id', 'entier positif');
+    }
+
+    const pause = await db.queryOne(
+      'SELECT id, agent_matricule, status, excluded_from_budget FROM pauses WHERE id = $1',
+      [id]
+    );
+    if (!pause) return Errors.notFound(res, 'Pause');
+    if (pause.status !== 'ended') {
+      return Errors.conflict(res, 'Seule une pause terminée peut être ignorée. Forcer le retour d’abord.');
+    }
+
+    const updated = await db.queryOne(
+      `UPDATE pauses SET excluded_from_budget = $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING id, agent_matricule, status, excluded_from_budget, start_time, end_time,
+                 end_reason, duration_seconds, max_minutes_at_end`,
+      [excluded, id]
+    );
+
+    const pauseBudget = await loadAgentPauseBudget(updated.agent_matricule);
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`agent:${updated.agent_matricule}`).emit('pause:budget-updated', { pauseBudget });
+    }
+
+    res.json({ pause: updated, pauseBudget });
   } catch (err) {
     Errors.internal(res, err);
   }

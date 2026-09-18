@@ -5,9 +5,15 @@ const { normalizeWindows } = require('./pauseWindows');
 const PARIS = 'Europe/Paris';
 
 const SQL_AGENT_DAY_PAUSES =
-  'SELECT id, start_time, end_time, duration_seconds, status ' +
+  'SELECT id, start_time, end_time, duration_seconds, status, excluded_from_budget ' +
   'FROM pauses ' +
-  'WHERE agent_matricule = $1 AND start_time >= $2 AND start_time < $3';
+  'WHERE agent_matricule = $1 AND start_time >= $2 AND start_time < $3 ' +
+  'AND excluded_from_budget = false';
+
+const SQL_DAY_PAUSES =
+  'SELECT agent_matricule, id, start_time, end_time, duration_seconds, status, excluded_from_budget ' +
+  'FROM pauses ' +
+  'WHERE start_time >= $1 AND start_time < $2';
 
 function pad2(n) {
   return String(n).padStart(2, '0');
@@ -88,6 +94,10 @@ function currentWindowBounds(minutesOfDay, windows) {
   return hit ? { startMin: hit.startMin, endMin: hit.endMin } : null;
 }
 
+function isExcludedFromBudget(pause) {
+  return !!(pause && pause.excluded_from_budget === true);
+}
+
 function pauseDurationSeconds(pause, now) {
   const start = new Date(pause.start_time).getTime();
   if (!Number.isFinite(start)) return 0;
@@ -134,6 +144,7 @@ function computePauseBudget(opts) {
   const inWindow = [];
   if (bounds) {
     for (const pause of opts.pauses || []) {
+      if (isExcludedFromBudget(pause)) continue;
       const mins = parisClockFromDate(new Date(pause.start_time)).minutesOfDay;
       if (mins >= bounds.startMin && mins < bounds.endMin) inWindow.push(pause);
     }
@@ -169,10 +180,12 @@ function pauseLimitMessage(reason) {
 
 module.exports = {
   SQL_AGENT_DAY_PAUSES,
+  SQL_DAY_PAUSES,
   parisClockFromDate,
   parisDayBounds,
   parseMaxPauses,
   currentWindowBounds,
+  isExcludedFromBudget,
   computePauseBudget,
   pauseLimitMessage,
 };

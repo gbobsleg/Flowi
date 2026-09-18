@@ -911,6 +911,10 @@ function agentApp() {
         }
       });
 
+      socket.on('pause:budget-updated', (evt) => {
+        this.applyPauseBudget(evt && evt.pauseBudget);
+      });
+
       // Mise à jour quota / blocage
       socket.on('offer:block-status', (evt) => {
         this.blockStatus[evt.offerCode] = {
