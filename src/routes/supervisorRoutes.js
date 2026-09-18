@@ -7,6 +7,10 @@ const { effectiveQuota, countActivePauses, emitOfferUpdate, emitQuotasUpdate, al
 const { Errors, apiError, isValidOfferCode, newOfferCode, isPositiveInt, isPercent } = require('../middlewares/validate');
 const { importGenesysBuffer, analyseGenesysBuffer, GenesysImportError, canonicalWfmLabel, slotsByDay } = require('../services/genesysPlanningImport');
 const { pauseWindowStatus } = require('../lib/pauseWindows');
+const {
+  loadAnonymizeAgentNames,
+  broadcastPauseEvent,
+} = require('../lib/pauseIdentity');
 
 function nowIso() { return new Date().toISOString(); }
 
@@ -887,8 +891,7 @@ router.post('/pause/force-stop', requireSupervisor, async (req, res) => {
         endReason:       'supervisor_forced',
         pauseBudget:     result.pauseBudget,
       };
-      io.to(`offer:${offerCode}`).emit('pause:stopped', payload);
-      io.emit('pause:stopped', payload);
+      broadcastPauseEvent(io, 'pause:stopped', payload, await loadAnonymizeAgentNames());
       await emitOfferUpdate(io, offerCode, result.pause.offer_id_val);
       await emitQuotasUpdate(io);
     }
@@ -1171,6 +1174,31 @@ router.put('/settings/max-pauses-per-agent', requireSupervisor, async (req, res)
     if (io) io.emit('system:settings-updated', { maxPausesPerAgent: maxPauses });
 
     res.json({ maxPausesPerAgent: maxPauses });
+  } catch (err) {
+    Errors.internal(res, err);
+  }
+});
+
+/**
+ * PUT /api/supervisor/settings/anonymize-agent-names
+ * Body: { enabled: true|false }
+ */
+router.put('/settings/anonymize-agent-names', requireSupervisor, async (req, res) => {
+  try {
+    if (!req.body || !Object.prototype.hasOwnProperty.call(req.body, 'enabled')) {
+      return Errors.missingField(res, 'enabled');
+    }
+    const { enabled } = req.body;
+    if (typeof enabled !== 'boolean') {
+      return Errors.invalidType(res, 'enabled', 'boolean');
+    }
+
+    await db.query(UPSERT_SETTING, ['anonymize_agent_names', enabled ? '1' : '0']);
+
+    const io = req.app.get('io');
+    if (io) io.emit('system:settings-updated', { anonymizeAgentNames: enabled });
+
+    res.json({ anonymizeAgentNames: enabled });
   } catch (err) {
     Errors.internal(res, err);
   }

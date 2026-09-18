@@ -10,6 +10,11 @@ const {
   computePauseBudget,
   pauseLimitMessage,
 } = require('../lib/pauseBudget');
+const {
+  loadAnonymizeAgentNames,
+  redactSnapshot,
+  broadcastPauseEvent,
+} = require('../lib/pauseIdentity');
 
 // ---------- helpers internes ----------
 
@@ -289,16 +294,19 @@ router.get('/bootstrap', async (req, res) => {
     const maintenanceMode = maintenanceRow ? maintenanceRow.value === '1' : false;
 
     const maxPauseMinutes = await loadMaxPauseMinutes();
+    const anonymizeAgentNames = await loadAnonymizeAgentNames();
+    const snapshot = await buildSnapshot();
 
     res.json({
       agent: agent || null,
       activePause: activePause || null,
-      snapshot: await buildSnapshot(),
+      snapshot: anonymizeAgentNames ? redactSnapshot(snapshot, agentMatricule || null) : snapshot,
       quotas: await buildQuotasSnapshot(),
       pauseWindows: await loadPauseWindowStatus(),
       pauseBudget: agentMatricule ? await loadAgentPauseBudget(agentMatricule) : null,
       maintenanceMode,
       maxPauseMinutes,
+      anonymizeAgentNames,
     });
   } catch (err) {
     Errors.internal(res, err);
@@ -450,8 +458,7 @@ router.post('/pause/start', async (req, res) => {
         allowedSeconds: result.allowedSeconds,
         pauseBudget: result.pauseBudget,
       };
-      io.to(`offer:${offerCode}`).emit('pause:started', startedPayload);
-      io.emit('pause:started', startedPayload);
+      broadcastPauseEvent(io, 'pause:started', startedPayload, await loadAnonymizeAgentNames());
 
       await emitOfferUpdate(io, offerCode, offer.id);
       await emitQuotasUpdate(io);
@@ -519,8 +526,7 @@ router.post('/pause/stop', async (req, res) => {
         endReason:       'manual',
         pauseBudget:     result.pauseBudget,
       };
-      io.to(`offer:${offerCode}`).emit('pause:stopped', stoppedPayload);
-      io.emit('pause:stopped', stoppedPayload);
+      broadcastPauseEvent(io, 'pause:stopped', stoppedPayload, await loadAnonymizeAgentNames());
 
       await emitOfferUpdate(io, offerCode, result.pause.offer_id_val);
       await emitQuotasUpdate(io);

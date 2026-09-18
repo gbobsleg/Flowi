@@ -294,7 +294,7 @@
       <table class="w-full text-sm" x-show="filteredPauses.length > 0">
         <thead>
           <tr class="text-xs text-slate-400 uppercase tracking-wider border-b border-slate-100">
-            <th class="px-5 py-3 text-left font-medium">Nom</th>
+            <th class="px-5 py-3 text-left font-medium" x-text="anonymizeAgentNames ? 'Agent' : 'Nom'"></th>
             <th class="px-5 py-3 text-left font-medium">Offre</th>
             <th class="px-5 py-3 text-right font-medium">Temps écoulé</th>
           </tr>
@@ -303,11 +303,10 @@
           <template x-for="p in filteredPauses" :key="p.id">
             <tr
               class="border-b border-slate-50 last:border-0 transition-colors"
-              :class="p.agent_matricule === agent_matricule ? 'bg-brand-50' : 'hover:bg-slate-50'"
+              :class="isOwnPause(p) ? 'bg-brand-50' : 'hover:bg-slate-50'"
             >
               <td class="px-5 py-3 font-medium text-slate-700">
-                <span x-text="p.agentName"></span>
-                <span x-show="p.agent_matricule === agent_matricule" class="ml-1.5 text-xs text-brand-500 font-normal">(moi)</span>
+                <span x-text="displayPauseName(p)"></span>
               </td>
               <td class="px-5 py-3">
                 <span
@@ -426,6 +425,7 @@ function agentApp() {
     pauseWindows: { windows: [], open: true, nextOpen: null },
     pauseBudget: null,
     myAllowedSeconds: null,
+    anonymizeAgentNames: false,
     pauseWindowForcedClosed: false,
 
     // ── Durée max pause ──────────────────────────────
@@ -701,18 +701,15 @@ function agentApp() {
         // Durée maximale de pause
         if (typeof data.maxPauseMinutes === 'number') { this.maxPauseMinutes = data.maxPauseMinutes; this.updateThresholds(); }
 
+        if (typeof data.anonymizeAgentNames === 'boolean') this.anonymizeAgentNames = data.anonymizeAgentNames;
+
         // Alimenter le dashboard
         this.allPauses = [];
-        for (const entry of data.snapshot) {
-          for (const p of entry.pauses) {
-            this.upsertPause({
-              id: p.id,
-              agent_matricule: p.agent_matricule,
-              agentName: `${p.prenom} ${p.nom}`,
-              offerCode: entry.offer.code,
-              offerLabel: entry.offer.label,
-              startTime: p.start_time,
-            });
+        if (Array.isArray(data.snapshot)) {
+          for (const entry of data.snapshot) {
+            for (const p of entry.pauses) {
+              this.upsertPause(this.pauseRowFromRemote(p, entry.offer));
+            }
           }
         }
       } catch (e) {
@@ -871,14 +868,7 @@ function agentApp() {
         this.allPauses = [];
         for (const entry of snapshot) {
           for (const p of entry.pauses) {
-            this.upsertPause({
-              id: p.id,
-              agent_matricule: p.agent_matricule,
-              agentName: `${p.prenom} ${p.nom}`,
-              offerCode: entry.offer.code,
-              offerLabel: entry.offer.label,
-              startTime: p.start_time,
-            });
+            this.upsertPause(this.pauseRowFromRemote(p, entry.offer));
           }
         }
       });
@@ -887,14 +877,15 @@ function agentApp() {
       socket.on('pause:started', (evt) => {
         this.upsertPause({
           id: evt.pauseId,
-          agent_matricule: evt.agent_matricule,
-          agentName: evt.agentName,
+          agent_matricule: evt.agent_matricule || null,
+          prenom: evt.prenom || '',
+          nom: evt.nom || '',
+          agentName: evt.agentName || '',
           offerCode: evt.offerCode,
           offerLabel: this.offerLabel(evt.offerCode),
           startTime: evt.startTime,
         });
-        // Mise à jour de mon état si c'est moi
-        if (evt.agent_matricule === this.agent_matricule) {
+        if (this.isOwnPauseEvent(evt)) {
           this.isPaused    = true;
           this.myStartTime = evt.startTime;
           this.myPauseId   = evt.pauseId;
@@ -902,14 +893,13 @@ function agentApp() {
             this.myAllowedSeconds = Number(evt.allowedSeconds);
             this.updateThresholds();
           }
-          this.applyPauseBudget(evt.pauseBudget);
+          if (evt.pauseBudget) this.applyPauseBudget(evt.pauseBudget);
         }
       });
 
-      // Agent revenu de pause
       socket.on('pause:stopped', (evt) => {
         this.removePause(evt.pauseId);
-        if (evt.agent_matricule === this.agent_matricule) {
+        if (this.isOwnPauseEvent(evt)) {
           this.isPaused    = false;
           this.myStartTime = null;
           this.myPauseId   = null;
@@ -917,7 +907,7 @@ function agentApp() {
           this.myElapsedMin = 0;
           this.myAllowedSeconds = null;
           this.updateThresholds();
-          this.applyPauseBudget(evt.pauseBudget);
+          if (evt.pauseBudget) this.applyPauseBudget(evt.pauseBudget);
         }
       });
 
@@ -955,6 +945,10 @@ function agentApp() {
         if (evt.maxPauseMinutes !== undefined) { this.maxPauseMinutes = evt.maxPauseMinutes; this.updateThresholds(); }
         if (evt.pauseWindows) this.applyPauseWindowsPayload(evt.pauseWindows);
         if (evt.maxPausesPerAgent !== undefined && this.agent_matricule) this.bootstrap();
+        if (evt.anonymizeAgentNames !== undefined) {
+          this.anonymizeAgentNames = evt.anonymizeAgentNames === true;
+          this.bootstrap();
+        }
       });
 
       this._socket = socket;
@@ -965,6 +959,46 @@ function agentApp() {
       const idx = this.allPauses.findIndex(x => x.id === p.id);
       if (idx >= 0) this.allPauses[idx] = p;
       else this.allPauses.push(p);
+    },
+
+    pauseRowFromRemote(p, offer) {
+      const prenom = p && p.prenom != null ? String(p.prenom) : '';
+      const nom = p && p.nom != null ? String(p.nom) : '';
+      return {
+        id: p.id,
+        agent_matricule: p.agent_matricule || null,
+        prenom,
+        nom,
+        agentName: (prenom && nom) ? `${prenom} ${nom}` : (p.agentName || ''),
+        offerCode: offer && offer.code,
+        offerLabel: offer && offer.label,
+        startTime: p.start_time,
+      };
+    },
+
+    isOwnPause(p) {
+      if (!p) return false;
+      if (this.agent_matricule && p.agent_matricule && p.agent_matricule === this.agent_matricule) return true;
+      const id = p.id != null ? p.id : p.pauseId;
+      return this.myPauseId != null && id === this.myPauseId;
+    },
+
+    isOwnPauseEvent(evt) {
+      if (!evt) return false;
+      if (this.agent_matricule && evt.agent_matricule && evt.agent_matricule === this.agent_matricule) return true;
+      return this.myPauseId != null && evt.pauseId === this.myPauseId;
+    },
+
+    displayPauseName(p) {
+      const prenom = p && typeof p.prenom === 'string' ? p.prenom.trim() : '';
+      const nom = p && typeof p.nom === 'string' ? p.nom.trim() : '';
+      let base = [prenom, nom].filter(Boolean).join(' ');
+      if (!base && p && typeof p.agentName === 'string') {
+        const n = p.agentName.trim();
+        if (n && n !== 'undefined undefined') base = n;
+      }
+      if (!base) base = 'Agent';
+      return this.isOwnPause(p) ? `${base} (moi)` : base;
     },
 
     removePause(pauseId) {
@@ -1091,6 +1125,11 @@ function agentApp() {
             }
           } else {
             this.persistLocal();
+            if (data.pauseId != null) this.myPauseId = data.pauseId;
+            if (data.startTime) {
+              this.isPaused = true;
+              this.myStartTime = data.startTime;
+            }
             this.applyPauseBudget(data.pauseBudget);
             if (data.allowedSeconds != null) {
               this.myAllowedSeconds = Number(data.allowedSeconds);

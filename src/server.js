@@ -10,6 +10,11 @@ const db          = require('./db');
 const { router: agentRouter, buildSnapshot, emitOfferUpdate, emitQuotasUpdate, getParisClock, loadAgentPauseBudget } = require('./routes/agentRoutes');
 const supervisorRouter = require('./routes/supervisorRoutes');
 const systemRouter     = require('./routes/systemRoutes');
+const {
+  loadAnonymizeAgentNames,
+  redactSnapshot,
+  broadcastPauseEvent,
+} = require('./lib/pauseIdentity');
 
 const app    = express();
 const server = http.createServer(app);
@@ -89,7 +94,9 @@ io.on('connection', socket => {
 
   (async () => {
     try {
-      socket.emit('state:snapshot', await buildSnapshot());
+      const snapshot = await buildSnapshot();
+      const anonymize = await loadAnonymizeAgentNames();
+      socket.emit('state:snapshot', anonymize ? redactSnapshot(snapshot) : snapshot);
       const mRow = await db.queryOne("SELECT value FROM app_settings WHERE key = 'maintenance_mode'");
       socket.emit('system:maintenance-mode', { active: mRow ? mRow.value === '1' : false });
     } catch (err) {
@@ -108,6 +115,9 @@ io.on('connection', socket => {
   socket.on('join:supervisor', () => {
     socket.join('supervisor');
     console.log(`[socket] ${clientId} a rejoint la room superviseur`);
+    buildSnapshot()
+      .then((snapshot) => socket.emit('state:snapshot', snapshot))
+      .catch((err) => console.error('[socket] snapshot superviseur', err));
   });
 
   socket.on('agent:identify', ({ agent_matricule, device_id } = {}) => {
@@ -143,6 +153,12 @@ io.on('connection', socket => {
 
     activeSessions.set(matricule, { socketId: clientId, deviceId });
     socketToMatricule.set(clientId, matricule);
+    for (const room of [...socket.rooms]) {
+      if (typeof room === 'string' && room.startsWith('agent:') && room !== `agent:${matricule}`) {
+        socket.leave(room);
+      }
+    }
+    socket.join(`agent:${matricule}`);
     io.to('supervisor').emit('session:update', { agent_matricule: matricule, isOnline: true });
     socket.emit('session:identified', { agent_matricule: matricule });
   });
@@ -222,8 +238,7 @@ async function closeExpiredPauses() {
       pauseBudget,
     };
 
-    io.to(`offer:${p.offer_code}`).emit('pause:stopped', stoppedPayload);
-    io.emit('pause:stopped', stoppedPayload);
+    broadcastPauseEvent(io, 'pause:stopped', stoppedPayload, await loadAnonymizeAgentNames());
 
     await emitOfferUpdate(io, p.offer_code, p.offer_id_val);
     await emitQuotasUpdate(io);

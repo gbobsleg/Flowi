@@ -658,6 +658,25 @@
             :class="maxPauseMsgOk ? 'text-green-600' : 'text-red-500'"
             x-text="maxPauseMsg"></p>
         </div>
+
+        <!-- Anonymiser les noms sur l'écran agent -->
+        <div class="px-5 py-5">
+          <label class="block text-sm font-medium text-slate-700 mb-1">Masquer les noms sur l'écran agent</label>
+          <p class="text-xs text-slate-500 mb-3">
+            Les agents voient les pauses (offre, durée) sans les identités. Le Live superviseur n’est pas impacté : les noms restent affichés.
+          </p>
+          <label class="inline-flex items-center gap-2 text-sm text-slate-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              class="rounded border-shell-border"
+              :checked="settings.anonymizeAgentNames"
+              :disabled="anonymizeSaving"
+              @change="saveAnonymizeAgentNames($event.target.checked)"
+            >
+            <span>Activer</span>
+          </label>
+          <p class="mt-2 text-xs min-h-[1rem]" :class="anonymizeMsgOk ? 'text-green-600' : 'text-red-500'" x-text="anonymizeMsg"></p>
+        </div>
       </div>
 
       <section class="bg-white rounded-md border border-shell-border shadow-sm p-5 mt-4">
@@ -1578,6 +1597,10 @@
               <dd class="text-sm text-slate-600">Plafond de départs par agent et par plage (vide = illimité en nombre, pas en temps). Le pot reste la durée max. Revenir plus tôt garde le reste pour un prochain départ sur la même plage (ou le même jour).</dd>
             </div>
             <div>
+              <dt class="text-xs font-semibold text-slate-800">Général — Masquer les noms</dt>
+              <dd class="text-sm text-slate-600">Sur l’écran agent, la liste des pauses n’affiche plus prénom, nom ni matricule (libellé « Agent », « Agent (moi) » pour soi). Offre et chrono restent visibles. Le Live et l’historique superviseur gardent les identités. Prise d’effet immédiate pour les agents connectés.</dd>
+            </div>
+            <div>
               <dt class="text-xs font-semibold text-slate-800">Offres — % autorisé</dt>
               <dd class="text-sm text-slate-600">Part de l’effectif planifié qui peut être en pause. Vide = quota par défaut de l’offre. Indépendant du quota forcé (Temps réel). Si la création de l’offre réussit mais pas l’enregistrement du %, un bouton « Réessayer le % » rejoue uniquement cette étape.</dd>
             </div>
@@ -1977,7 +2000,7 @@ function supervisorApp() {
     otaLogs:         [],
 
     // ── Paramètres ───────────────────────────────
-    settings:       { historyRetentionDays: 30, maxPauseMinutes: 15, maxPausesPerAgent: '', github_owner: '', github_repo: '' },
+    settings:       { historyRetentionDays: 30, maxPauseMinutes: 15, maxPausesPerAgent: '', anonymizeAgentNames: false, github_owner: '', github_repo: '' },
     githubTokenConfigured: false,
     githubTokenInput:      '',
     githubOtaSaving:       false,
@@ -1997,6 +2020,9 @@ function supervisorApp() {
     maxPausesSaving: false,
     maxPausesMsg:    '',
     maxPausesMsgOk:  true,
+    anonymizeSaving: false,
+    anonymizeMsg:    '',
+    anonymizeMsgOk:  true,
 
     // ── Init ─────────────────────────────────────
     async init() {
@@ -3467,6 +3493,7 @@ function supervisorApp() {
         this.settings.maxPauseMinutes      = parseInt(data.settings?.max_pause_minutes      || 15, 10);
         const rawMaxPauses = data.settings?.max_pauses_per_agent;
         this.settings.maxPausesPerAgent    = rawMaxPauses && String(rawMaxPauses).trim() !== '' ? String(parseInt(rawMaxPauses, 10)) : '';
+        this.settings.anonymizeAgentNames  = data.settings?.anonymize_agent_names === '1';
         this.settings.github_owner         = typeof data.settings?.github_owner === 'string' ? data.settings.github_owner : '';
         this.settings.github_repo          = typeof data.settings?.github_repo === 'string' ? data.settings.github_repo : '';
         this.githubTokenConfigured         = !!data.settings?.github_token_configured;
@@ -3684,6 +3711,39 @@ function supervisorApp() {
       }
     },
 
+    async saveAnonymizeAgentNames(enabled) {
+      this.anonymizeSaving = true;
+      this.anonymizeMsg = '';
+      this.settings.anonymizeAgentNames = enabled === true;
+      try {
+        const res = await fetch('/api/supervisor/settings/anonymize-agent-names', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ enabled: enabled === true }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          this.anonymizeMsgOk = true;
+          this.settings.anonymizeAgentNames = data.anonymizeAgentNames === true;
+          this.anonymizeMsg = this.settings.anonymizeAgentNames
+            ? 'Noms masqués sur l’écran agent.'
+            : 'Noms visibles sur l’écran agent.';
+        } else {
+          this.anonymizeMsgOk = false;
+          this.anonymizeMsg = data.error?.message || 'Erreur.';
+          await this.loadSettings();
+        }
+      } catch {
+        this.anonymizeMsgOk = false;
+        this.anonymizeMsg = 'Erreur réseau.';
+        await this.loadSettings();
+      } finally {
+        this.anonymizeSaving = false;
+        setTimeout(() => { this.anonymizeMsg = ''; }, 4000);
+      }
+    },
+
     // ── Mode urgence ─────────────────────────────
     async loadMaintenanceMode() {
       try {
@@ -3862,6 +3922,9 @@ function supervisorApp() {
         if (evt.maxPauseMinutes !== undefined) { this.settings.maxPauseMinutes = evt.maxPauseMinutes; this.updateThresholds(); }
         if (evt.maxPausesPerAgent !== undefined) {
           this.settings.maxPausesPerAgent = evt.maxPausesPerAgent == null ? '' : String(evt.maxPausesPerAgent);
+        }
+        if (evt.anonymizeAgentNames !== undefined) {
+          this.settings.anonymizeAgentNames = evt.anonymizeAgentNames === true;
         }
       });
 
