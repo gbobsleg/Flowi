@@ -64,6 +64,9 @@ const Errors = {
     return apiError(res, 409, 'OUTSIDE_PAUSE_WINDOW', message, { nextOpen: nextOpen || null });
   },
 
+  pauseLimitReached: (res, message, pauseBudget) =>
+    apiError(res, 409, 'PAUSE_LIMIT_REACHED', message, { pauseBudget: pauseBudget || null }),
+
   unauthorized: (res) =>
     apiError(res, 401, 'UNAUTHORIZED', 'Authentification requise'),
 

@@ -3,7 +3,7 @@ const multer  = require('multer');
 const router  = express.Router();
 const db      = require('../db');
 const { createSession, validatePin, requireSupervisor } = require('../middlewares/supervisorAuth');
-const { effectiveQuota, countActivePauses, emitOfferUpdate, emitQuotasUpdate, allowedFromHeadcount, getParisClock } = require('./agentRoutes');
+const { effectiveQuota, countActivePauses, emitOfferUpdate, emitQuotasUpdate, allowedFromHeadcount, getParisClock, loadAgentPauseBudget } = require('./agentRoutes');
 const { Errors, apiError, isValidOfferCode, newOfferCode, isPositiveInt, isPercent } = require('../middlewares/validate');
 const { importGenesysBuffer, analyseGenesysBuffer, GenesysImportError, canonicalWfmLabel, slotsByDay } = require('../services/genesysPlanningImport');
 const { pauseWindowStatus } = require('../lib/pauseWindows');
@@ -864,7 +864,8 @@ router.post('/pause/force-stop', requireSupervisor, async (req, res) => {
         [now, durationSeconds, now, pause.id]
       );
 
-      return { pause, durationSeconds, endTime: now };
+      const pauseBudget = await loadAgentPauseBudget(agentMatricule, client);
+      return { pause, durationSeconds, endTime: now, pauseBudget };
     });
 
     if (result.err === 'NOT_FOUND') return Errors.notFound(res, 'Pause active pour cet agent');
@@ -884,6 +885,7 @@ router.post('/pause/force-stop', requireSupervisor, async (req, res) => {
         endTime:         result.endTime,
         durationSeconds: result.durationSeconds,
         endReason:       'supervisor_forced',
+        pauseBudget:     result.pauseBudget,
       };
       io.to(`offer:${offerCode}`).emit('pause:stopped', payload);
       io.emit('pause:stopped', payload);
@@ -891,7 +893,11 @@ router.post('/pause/force-stop', requireSupervisor, async (req, res) => {
       await emitQuotasUpdate(io);
     }
 
-    res.json({ endTime: result.endTime, durationSeconds: result.durationSeconds });
+    res.json({
+      endTime: result.endTime,
+      durationSeconds: result.durationSeconds,
+      pauseBudget: result.pauseBudget,
+    });
   } catch (err) {
     Errors.internal(res, err);
   }
@@ -1134,6 +1140,37 @@ router.put('/settings/max-pause-minutes', requireSupervisor, async (req, res) =>
     if (io) io.emit('system:settings-updated', { maxPauseMinutes: minutes });
 
     res.json({ maxPauseMinutes: minutes });
+  } catch (err) {
+    Errors.internal(res, err);
+  }
+});
+
+/**
+ * PUT /api/supervisor/settings/max-pauses-per-agent
+ * Body: { maxPauses: number | null } — null ou vide = illimité.
+ */
+router.put('/settings/max-pauses-per-agent', requireSupervisor, async (req, res) => {
+  try {
+    if (!req.body || !Object.prototype.hasOwnProperty.call(req.body, 'maxPauses')) {
+      return Errors.missingField(res, 'maxPauses');
+    }
+    const raw = req.body.maxPauses;
+    let stored = '';
+    let maxPauses = null;
+    if (raw !== null && raw !== '') {
+      if (!Number.isInteger(raw) || raw < 1 || raw > 20) {
+        return Errors.invalidType(res, 'maxPauses', 'entier 1–20 ou null');
+      }
+      stored = String(raw);
+      maxPauses = raw;
+    }
+
+    await db.query(UPSERT_SETTING, ['max_pauses_per_agent', stored]);
+
+    const io = req.app.get('io');
+    if (io) io.emit('system:settings-updated', { maxPausesPerAgent: maxPauses });
+
+    res.json({ maxPausesPerAgent: maxPauses });
   } catch (err) {
     Errors.internal(res, err);
   }

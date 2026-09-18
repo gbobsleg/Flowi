@@ -7,7 +7,7 @@ const path         = require('path');
 
 const config      = require('./config');
 const db          = require('./db');
-const { router: agentRouter, buildSnapshot, emitOfferUpdate, emitQuotasUpdate, getParisClock } = require('./routes/agentRoutes');
+const { router: agentRouter, buildSnapshot, emitOfferUpdate, emitQuotasUpdate, getParisClock, loadAgentPauseBudget } = require('./routes/agentRoutes');
 const supervisorRouter = require('./routes/supervisorRoutes');
 const systemRouter     = require('./routes/systemRoutes');
 
@@ -182,7 +182,10 @@ async function closeExpiredPauses() {
     'FROM pauses p ' +
     'JOIN offers o ON o.id = p.offer_id ' +
     'JOIN agents a ON a.matricule = p.agent_matricule ' +
-    "WHERE p.status = 'in_progress' AND p.start_time <= $1",
+    "WHERE p.status = 'in_progress' AND (" +
+    '  (p.allowed_seconds IS NOT NULL AND p.start_time + (p.allowed_seconds * INTERVAL \'1 second\') <= NOW()) ' +
+    '  OR (p.allowed_seconds IS NULL AND p.start_time <= $1)' +
+    ')',
     [cutoff]
   );
 
@@ -196,7 +199,7 @@ async function closeExpiredPauses() {
       await client.query(
         "UPDATE pauses SET status = 'ended', end_time = $1, end_reason = 'auto_15m', " +
         'duration_seconds = EXTRACT(EPOCH FROM ($1::timestamptz - start_time))::integer, ' +
-        'max_minutes_at_end = $2, updated_at = $1 WHERE id = $3',
+        'max_minutes_at_end = $2, updated_at = $1 WHERE id = $3 AND status = \'in_progress\'',
         [now, currentMaxMinutes, p.id]
       );
     }
@@ -204,6 +207,7 @@ async function closeExpiredPauses() {
 
   for (const p of expired) {
     const duration = Math.round((new Date(now) - new Date(p.start_time)) / 1000);
+    const pauseBudget = await loadAgentPauseBudget(p.agent_matricule);
 
     const stoppedPayload = {
       pauseId:         p.id,
@@ -215,6 +219,7 @@ async function closeExpiredPauses() {
       endTime:         now,
       durationSeconds: duration,
       endReason:       'auto_15m',
+      pauseBudget,
     };
 
     io.to(`offer:${p.offer_code}`).emit('pause:stopped', stoppedPayload);

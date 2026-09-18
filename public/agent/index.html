@@ -185,6 +185,19 @@
       <span x-text="outsidePauseWindowMessage"></span>
     </div>
 
+    <template x-if="isPauseBudgetBlocked && !isPaused">
+      <div
+        class="mb-4 flex items-center gap-2 bg-slate-50 border border-shell-border text-slate-700 text-xs rounded-lg px-3 py-2"
+      >
+        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <span x-text="pauseBudgetMessage"></span>
+      </div>
+    </template>
+    <p class="mb-4 text-xs text-slate-600 min-h-[1rem]" x-text="pauseTimeHint"></p>
+
     <!-- Alerte quota atteint -->
     <div
       x-show="isQuotaBannerVisible && !isPaused"
@@ -241,7 +254,7 @@
       x-cloak
       class="mt-3 text-center"
     >
-      <span class="text-xs text-slate-500">Pause en cours depuis</span>
+      <span class="text-xs text-slate-500">Temps restant</span>
       <div
         class="text-2xl font-mono font-bold mt-0.5 tabular-nums"
         :class="{
@@ -249,8 +262,9 @@
           'text-orange-500':             myElapsedMin >= thresholdOrange && myElapsedMin < thresholdRed,
           'text-brand-600':              myElapsedMin < thresholdOrange
         }"
-        x-text="formatDuration(myElapsedSec)"
+        x-text="formatDuration(myRemainingSec)"
       ></div>
+      <p class="text-[11px] text-slate-400 mt-1 tabular-nums" x-text="'Écoulé ' + formatDuration(myElapsedSec)"></p>
     </div>
   </section>
 
@@ -410,6 +424,8 @@ function agentApp() {
     quotasTiles: [],   // [{ offre_id, nom, quota_max, pauses_en_cours }]
     pastelColors: ['#ffb3ba', '#ffdfba', '#ffffba', '#baffc9', '#bae1ff'],
     pauseWindows: { windows: [], open: true, nextOpen: null },
+    pauseBudget: null,
+    myAllowedSeconds: null,
     pauseWindowForcedClosed: false,
 
     // ── Durée max pause ──────────────────────────────
@@ -418,8 +434,12 @@ function agentApp() {
     thresholdOrange: 12,
 
     updateThresholds() {
-      this.thresholdRed    = Math.max(1, this.maxPauseMinutes - 1);
-      this.thresholdOrange = Math.max(1, this.maxPauseMinutes - 3);
+      const capSec = this.myAllowedSeconds != null
+        ? Number(this.myAllowedSeconds)
+        : (this.maxPauseMinutes * 60);
+      const m = Math.max(1, Math.round(capSec / 60));
+      this.thresholdRed    = Math.max(1, m - 1);
+      this.thresholdOrange = Math.max(1, m - 3);
     },
 
     // ── Mode urgence ─────────────────────────────────
@@ -446,7 +466,53 @@ function agentApp() {
     },
 
     get isStartBlocked() {
-      return this.isOutsidePauseWindow || this.isOfferBlocked;
+      return this.isOutsidePauseWindow || this.isOfferBlocked || this.isPauseBudgetBlocked;
+    },
+
+    get isPauseBudgetBlocked() {
+      if (this.isOutsidePauseWindow) return false;
+      const b = this.pauseBudget;
+      return !!(b && b.canStart === false);
+    },
+
+    get pauseBudgetMessage() {
+      const b = this.pauseBudget;
+      if (!b) return '';
+      const hasWindows = Array.isArray(this.pauseWindows.windows) && this.pauseWindows.windows.length > 0;
+      if (b.reason === 'budget') {
+        return hasWindows
+          ? 'Temps de pause épuisé sur cette plage.'
+          : 'Temps de pause épuisé pour aujourd’hui.';
+      }
+      return hasWindows
+        ? 'Pause déjà prise sur cette plage.'
+        : 'Pause déjà prise aujourd’hui.';
+    },
+
+    get pauseBudgetRemainingLabel() {
+      const b = this.pauseBudget;
+      if (!b || !b.canStart || !(b.remainingSeconds > 0)) return '';
+      const left = this.formatRemainingSpoken(b.remainingSeconds);
+      const hasWindows = Array.isArray(this.pauseWindows.windows) && this.pauseWindows.windows.length > 0;
+      return hasWindows
+        ? `Il vous reste ${left} sur cette plage.`
+        : `Il vous reste ${left} aujourd’hui.`;
+    },
+
+    get pauseTimeHint() {
+      if (this.isPaused || this.isPauseBudgetBlocked) return '';
+      return this.pauseBudgetRemainingLabel;
+    },
+
+    get mySittingCapSeconds() {
+      if (this.myAllowedSeconds != null && Number.isFinite(Number(this.myAllowedSeconds))) {
+        return Math.max(0, Number(this.myAllowedSeconds));
+      }
+      return Math.max(60, (this.maxPauseMinutes || 15) * 60);
+    },
+
+    get myRemainingSec() {
+      return Math.max(0, this.mySittingCapSeconds - (this.myElapsedSec || 0));
     },
 
     get isQuotaBannerVisible() {
@@ -609,6 +675,13 @@ function agentApp() {
         }
 
         this.applyPauseWindowsPayload(data.pauseWindows);
+        this.applyPauseBudget(data.pauseBudget);
+        if (data.activePause && data.activePause.allowed_seconds != null) {
+          this.myAllowedSeconds = Number(data.activePause.allowed_seconds);
+        } else if (!data.activePause) {
+          this.myAllowedSeconds = null;
+        }
+        this.updateThresholds();
 
         if (!this.isPaused && this.offerCode) this.clearInvalidStoredOffer();
 
@@ -672,6 +745,14 @@ function agentApp() {
       this.refreshPauseWindowStatus();
     },
 
+    applyPauseBudget(payload) {
+      if (!payload || typeof payload !== 'object') {
+        this.pauseBudget = null;
+        return;
+      }
+      this.pauseBudget = payload;
+    },
+
     refreshPauseWindowStatus() {
       const computed = pauseWindowStatusClient(parisMinutesOfDay(), this.pauseWindows.windows);
       if (this.pauseWindowForcedClosed) {
@@ -704,6 +785,7 @@ function agentApp() {
           this.applyQuotasPayload(data.quotas);
         }
         if (data.snapshot) this.buildBlockStatus(data.snapshot);
+        this.applyPauseBudget(data.pauseBudget);
       } catch { /* silencieux */ }
     },
 
@@ -816,6 +898,11 @@ function agentApp() {
           this.isPaused    = true;
           this.myStartTime = evt.startTime;
           this.myPauseId   = evt.pauseId;
+          if (evt.allowedSeconds != null) {
+            this.myAllowedSeconds = Number(evt.allowedSeconds);
+            this.updateThresholds();
+          }
+          this.applyPauseBudget(evt.pauseBudget);
         }
       });
 
@@ -828,6 +915,9 @@ function agentApp() {
           this.myPauseId   = null;
           this.myElapsedSec = 0;
           this.myElapsedMin = 0;
+          this.myAllowedSeconds = null;
+          this.updateThresholds();
+          this.applyPauseBudget(evt.pauseBudget);
         }
       });
 
@@ -864,6 +954,7 @@ function agentApp() {
         if (!evt) return;
         if (evt.maxPauseMinutes !== undefined) { this.maxPauseMinutes = evt.maxPauseMinutes; this.updateThresholds(); }
         if (evt.pauseWindows) this.applyPauseWindowsPayload(evt.pauseWindows);
+        if (evt.maxPausesPerAgent !== undefined && this.agent_matricule) this.bootstrap();
       });
 
       this._socket = socket;
@@ -944,6 +1035,8 @@ function agentApp() {
           const data = await res.json();
           if (!res.ok) {
             this.errorMsg = data.error?.message || 'Erreur lors du retour de pause.';
+          } else {
+            this.applyPauseBudget(data.pauseBudget);
           }
           // L'état est mis à jour par l'événement Socket pause:stopped
         } else {
@@ -984,6 +1077,9 @@ function agentApp() {
                 open: false,
                 nextOpen: data.error.fields?.nextOpen || this.pauseWindows.nextOpen || null,
               };
+            } else if (res.status === 409 && data.error?.code === 'PAUSE_LIMIT_REACHED') {
+              this.applyPauseBudget(data.error.fields?.pauseBudget);
+              this.errorMsg = data.error?.message || 'Pause déjà prise sur cette plage.';
             } else if (res.status === 429) {
               this.blockStatus[this.offerCode] = { canStartPause: false, effectiveQuota: data.error?.fields?.quota, currentPaused: data.error?.fields?.active };
               this.errorMsg = data.error?.message || 'Erreur lors du départ en pause.';
@@ -995,7 +1091,11 @@ function agentApp() {
             }
           } else {
             this.persistLocal();
-            // Rejoindre la room de l'offre sur le Socket
+            this.applyPauseBudget(data.pauseBudget);
+            if (data.allowedSeconds != null) {
+              this.myAllowedSeconds = Number(data.allowedSeconds);
+              this.updateThresholds();
+            }
             if (this._socket && this.offerCode) this._socket.emit('join:offer', { offerCode: this.offerCode });
           }
         }
@@ -1034,6 +1134,15 @@ function agentApp() {
       const m = Math.floor(totalSec / 60).toString().padStart(2, '0');
       const s = (totalSec % 60).toString().padStart(2, '0');
       return `${m}:${s}`;
+    },
+
+    formatRemainingSpoken(totalSec) {
+      const s = Math.max(0, Math.floor(Number(totalSec) || 0));
+      const m = Math.floor(s / 60);
+      const r = s % 60;
+      if (m === 0) return `${r} s`;
+      if (r === 0) return `${m} min`;
+      return `${m} min ${r} s`;
     },
 
     formatQuotaCount(value) {

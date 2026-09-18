@@ -3,6 +3,13 @@ const router  = express.Router();
 const db      = require('../db');
 const { Errors, isValidOfferCode } = require('../middlewares/validate');
 const { parsePauseWindows, pauseWindowStatus } = require('../lib/pauseWindows');
+const {
+  SQL_AGENT_DAY_PAUSES,
+  parisDayBounds,
+  parseMaxPauses,
+  computePauseBudget,
+  pauseLimitMessage,
+} = require('../lib/pauseBudget');
 
 // ---------- helpers internes ----------
 
@@ -60,6 +67,40 @@ async function loadPauseWindowStatus(client) {
     client
   );
   return pauseWindowStatus(clock.minutesOfDay, parsePauseWindows(windowsRow && windowsRow.value));
+}
+
+async function loadMaxPauseMinutes(client) {
+  const row = await qOne("SELECT value FROM app_settings WHERE key = 'max_pause_minutes'", [], client);
+  const n = row ? parseInt(row.value, 10) : 15;
+  return Number.isFinite(n) && n > 0 ? n : 15;
+}
+
+async function loadMaxPausesPerAgent(client) {
+  const row = await qOne("SELECT value FROM app_settings WHERE key = 'max_pauses_per_agent'", [], client);
+  return parseMaxPauses(row && row.value);
+}
+
+async function loadAgentPauseBudget(matricule, client, now = new Date()) {
+  const clock = getParisClock(now);
+  const { start, end } = parisDayBounds(clock.day);
+  const pauses = matricule
+    ? await qAll(SQL_AGENT_DAY_PAUSES, [matricule, start.toISOString(), end.toISOString()], client)
+    : [];
+  const windowsRow = await qOne(
+    "SELECT value FROM app_settings WHERE key = 'pause_windows'",
+    [],
+    client
+  );
+  const maxPauseMinutes = await loadMaxPauseMinutes(client);
+  const maxPauses = await loadMaxPausesPerAgent(client);
+  return computePauseBudget({
+    pauses,
+    windows: parsePauseWindows(windowsRow && windowsRow.value),
+    minutesOfDay: clock.minutesOfDay,
+    maxPauseMinutes,
+    maxPauses,
+    now,
+  });
 }
 
 /** floor(headcount × %) ; minimum 1 dès qu’il y a au moins une tête planifiée. */
@@ -247,10 +288,7 @@ router.get('/bootstrap', async (req, res) => {
     );
     const maintenanceMode = maintenanceRow ? maintenanceRow.value === '1' : false;
 
-    const maxPauseRow = await db.queryOne(
-      "SELECT value FROM app_settings WHERE key = 'max_pause_minutes'"
-    );
-    const maxPauseMinutes = maxPauseRow ? parseInt(maxPauseRow.value, 10) : 15;
+    const maxPauseMinutes = await loadMaxPauseMinutes();
 
     res.json({
       agent: agent || null,
@@ -258,6 +296,7 @@ router.get('/bootstrap', async (req, res) => {
       snapshot: await buildSnapshot(),
       quotas: await buildQuotasSnapshot(),
       pauseWindows: await loadPauseWindowStatus(),
+      pauseBudget: agentMatricule ? await loadAgentPauseBudget(agentMatricule) : null,
       maintenanceMode,
       maxPauseMinutes,
     });
@@ -346,14 +385,19 @@ router.post('/pause/start', async (req, res) => {
       return res.status(503).json({ error: { code: 'MAINTENANCE_ACTIVE', message: 'Départs en pause suspendus (Consigne Superviseur)' } });
     }
 
-    const windowStatus = await loadPauseWindowStatus();
-    if (!windowStatus.open) {
-      return Errors.outsidePauseWindow(res, windowStatus.nextOpen);
-    }
-
     const now = nowIso();
 
     const result = await db.withTransaction(async (client) => {
+      await client.query(
+        'SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))',
+        ['pause-start', agentMatricule]
+      );
+
+      const windowStatusTx = await loadPauseWindowStatus(client);
+      if (!windowStatusTx.open) {
+        return { err: 'OUTSIDE_WINDOW', nextOpen: windowStatusTx.nextOpen };
+      }
+
       await client.query('SELECT id FROM offers WHERE id = $1 FOR UPDATE', [offer.id]);
 
       const existingPause = await qOne(
@@ -363,21 +407,36 @@ router.post('/pause/start', async (req, res) => {
       );
       if (existingPause) return { err: 'CONFLICT', message: 'Une pause est déjà en cours pour cet agent' };
 
+      const budget = await loadAgentPauseBudget(agentMatricule, client);
+      if (!budget.canStart) {
+        return { err: 'PAUSE_LIMIT', budget };
+      }
+
       const quota  = await effectiveQuota(offer.id, client);
       const active = await countActivePauses(offer.id, client);
       if (active >= quota) return { err: 'QUOTA_REACHED', quota, active };
 
       const inserted = await qOne(
-        "INSERT INTO pauses (agent_matricule, offer_id, start_time, status, created_at, updated_at) " +
-        "VALUES ($1, $2, $3, 'in_progress', $4, $5) RETURNING id",
-        [agentMatricule, offer.id, now, now, now],
+        "INSERT INTO pauses (agent_matricule, offer_id, start_time, status, created_at, updated_at, allowed_seconds) " +
+        "VALUES ($1, $2, $3, 'in_progress', $4, $5, $6) RETURNING id, allowed_seconds",
+        [agentMatricule, offer.id, now, now, now, budget.sittingCapSeconds],
         client
       );
 
-      return { pauseId: inserted.id, startTime: now };
+      const pauseBudget = await loadAgentPauseBudget(agentMatricule, client);
+      return {
+        pauseId: inserted.id,
+        startTime: now,
+        allowedSeconds: inserted.allowed_seconds,
+        pauseBudget,
+      };
     });
 
+    if (result.err === 'OUTSIDE_WINDOW') return Errors.outsidePauseWindow(res, result.nextOpen);
     if (result.err === 'CONFLICT')     return Errors.conflict(res, result.message);
+    if (result.err === 'PAUSE_LIMIT') {
+      return Errors.pauseLimitReached(res, pauseLimitMessage(result.budget.reason), result.budget);
+    }
     if (result.err === 'QUOTA_REACHED') return Errors.quotaReached(res, result.quota, result.active);
 
     const io = req.app.get('io');
@@ -388,6 +447,8 @@ router.post('/pause/start', async (req, res) => {
         agentName: `${agent.prenom} ${agent.nom}`,
         offerCode,
         startTime: result.startTime,
+        allowedSeconds: result.allowedSeconds,
+        pauseBudget: result.pauseBudget,
       };
       io.to(`offer:${offerCode}`).emit('pause:started', startedPayload);
       io.emit('pause:started', startedPayload);
@@ -396,7 +457,12 @@ router.post('/pause/start', async (req, res) => {
       await emitQuotasUpdate(io);
     }
 
-    res.status(201).json({ pauseId: result.pauseId, startTime: result.startTime });
+    res.status(201).json({
+      pauseId: result.pauseId,
+      startTime: result.startTime,
+      allowedSeconds: result.allowedSeconds,
+      pauseBudget: result.pauseBudget,
+    });
   } catch (err) {
     Errors.internal(res, err);
   }
@@ -432,7 +498,8 @@ router.post('/pause/stop', async (req, res) => {
         [now, durationSeconds, now, pause.id]
       );
 
-      return { pause, durationSeconds, endTime: now };
+      const pauseBudget = await loadAgentPauseBudget(agentMatricule, client);
+      return { pause, durationSeconds, endTime: now, pauseBudget };
     });
 
     if (result.err === 'NOT_FOUND') return Errors.notFound(res, 'Pause active pour cet agent');
@@ -450,6 +517,7 @@ router.post('/pause/stop', async (req, res) => {
         endTime:         result.endTime,
         durationSeconds: result.durationSeconds,
         endReason:       'manual',
+        pauseBudget:     result.pauseBudget,
       };
       io.to(`offer:${offerCode}`).emit('pause:stopped', stoppedPayload);
       io.emit('pause:stopped', stoppedPayload);
@@ -458,7 +526,11 @@ router.post('/pause/stop', async (req, res) => {
       await emitQuotasUpdate(io);
     }
 
-    res.json({ endTime: result.endTime, durationSeconds: result.durationSeconds });
+    res.json({
+      endTime: result.endTime,
+      durationSeconds: result.durationSeconds,
+      pauseBudget: result.pauseBudget,
+    });
   } catch (err) {
     Errors.internal(res, err);
   }
@@ -475,4 +547,5 @@ module.exports = {
   getParisClock,
   allowedFromHeadcount,
   loadPauseWindowStatus,
+  loadAgentPauseBudget,
 };
