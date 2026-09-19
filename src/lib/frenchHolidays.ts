@@ -1,7 +1,9 @@
 'use strict';
 
+type Ymd = { year: number; month: number; day: number };
+
 /** Pâques grégorien (algorithme de Meeus/Jones/Butcher). month = 3 (mars) ou 4 (avril). */
-function gregorianEaster(year) {
+function gregorianEaster(year: number): Ymd {
   const y = Number(year);
   const a = y % 19;
   const b = Math.floor(y / 100);
@@ -20,7 +22,7 @@ function gregorianEaster(year) {
   return { year: y, month, day };
 }
 
-function addUtcDays(year, month, day, delta) {
+function addUtcDays(year: number, month: number, day: number, delta: number): Ymd {
   const dt = new Date(Date.UTC(year, month - 1, day + delta));
   return {
     year: dt.getUTCFullYear(),
@@ -29,15 +31,15 @@ function addUtcDays(year, month, day, delta) {
   };
 }
 
-function isoDate({ year, month, day }) {
+function isoDate({ year, month, day }: Ymd): string {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
 /**
  * 11 jours fériés de France métropolitaine pour une année civile.
- * @returns {Set<string>} dates YYYY-MM-DD
+ * @returns dates YYYY-MM-DD
  */
-function frenchHolidays(year) {
+function frenchHolidays(year: number): Set<string> {
   const y = Number(year);
   const easter = gregorianEaster(y);
   const dates = [
@@ -56,11 +58,13 @@ function frenchHolidays(year) {
   return new Set(dates);
 }
 
-function isFrenchHoliday(year, month, day) {
+function isFrenchHoliday(isoDay: string): boolean;
+function isFrenchHoliday(year: number, month: number, day: number): boolean;
+function isFrenchHoliday(year: number | string, month?: number, day?: number): boolean {
   if (typeof year === 'string' && month == null) {
     return frenchHolidays(Number(year.slice(0, 4))).has(year.slice(0, 10));
   }
-  return frenchHolidays(year).has(isoDate({ year, month, day }));
+  return frenchHolidays(year as number).has(isoDate({ year: year as number, month: month as number, day: day as number }));
 }
 
 module.exports = {
