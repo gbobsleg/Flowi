@@ -560,8 +560,7 @@ function supervisorApp() {
 
     // ── Planning ─────────────────────────────────
     mappingOfferLabel(offer) {
-      const name = offer?.label || offer?.code || '';
-      return offer?.is_active === false ? `${name} (désactivée)` : name;
+      return FlowiPlanningMapping.mappingOfferLabel(offer);
     },
 
     planningOfferActive(offer) {
@@ -574,21 +573,15 @@ function supervisorApp() {
     },
 
     mappingStatusLabel(row) {
-      if (row.offerCode === '__ignore__') return 'Ignoré';
-      if (row.offerCode) return 'Associé';
-      return 'Non classé';
+      return FlowiPlanningMapping.mappingStatusLabel(row);
     },
 
     mappingSortRank(row) {
-      if (row.offerCode && row.offerCode !== '__ignore__') return 0;
-      if (row.offerCode === '__ignore__') return 2;
-      return 1;
+      return FlowiPlanningMapping.mappingSortRank(row);
     },
 
     mappingStatusClass(row) {
-      if (row.offerCode === '__ignore__') return 'bg-slate-100 text-slate-600';
-      if (row.offerCode) return 'bg-brand-500/15 text-brand-700';
-      return 'bg-amber-50 text-amber-700';
+      return FlowiPlanningMapping.mappingStatusClass(row);
     },
 
     formatPlanningDay(isoDay) {
@@ -618,13 +611,7 @@ function supervisorApp() {
     },
 
     planningQuotaRule(row) {
-      if (row.fixedQuota != null) {
-        return `Quota forcé ${row.fixedQuota} — écrase le calcul de la grille`;
-      }
-      if (row.allowedPercent != null) {
-        return `${row.allowedPercent} % des planifiés (min. 1 si effectif > 0)`;
-      }
-      return `Quota défaut ${row.defaultQuota} (% non renseigné)`;
+      return FlowiPlanningMapping.planningQuotaRule(row);
     },
 
     buildPlanningSlotColumns(start, end) {
@@ -1830,38 +1817,16 @@ function supervisorApp() {
     },
 
     endReasonLabel(reason, row) {
-      const map = {
-        manual:            'Manuel',
-        auto_15m:          `Auto (${row?.max_minutes_at_end ?? this.settings.maxPauseMinutes} min)`,
-        supervisor_forced: 'Forcé superviseur',
-      };
-      return map[reason] || reason || '—';
+      return FlowiSupervisorFormat.endReasonLabel(reason, row, this.settings.maxPauseMinutes);
     },
 
     // ── Paramètres ───────────────────────────────
     parsePauseWindowsSetting(raw) {
-      if (Array.isArray(raw)) {
-        return raw.filter((w) => w && w.start && w.end).map((w) => ({ start: w.start, end: w.end }));
-      }
-      if (typeof raw !== 'string' || !raw.trim()) return [];
-      try {
-        const parsed = JSON.parse(raw);
-        if (!Array.isArray(parsed)) return [];
-        return parsed.filter((w) => w && w.start && w.end).map((w) => ({ start: w.start, end: w.end }));
-      } catch {
-        return [];
-      }
+      return FlowiSettingsParse.parsePauseWindowsSetting(raw);
     },
 
     parseImportWeekdaysSetting(raw) {
-      let parsed = raw;
-      if (typeof raw === 'string') {
-        try { parsed = JSON.parse(raw); } catch { parsed = [1, 2, 3, 4, 5]; }
-      }
-      if (!Array.isArray(parsed) || !parsed.length) return [1, 2, 3, 4, 5];
-      const nums = [...new Set(parsed.map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= 7))]
-        .sort((a, b) => a - b);
-      return nums.length ? nums : [1, 2, 3, 4, 5];
+      return FlowiSettingsParse.parseImportWeekdaysSetting(raw);
     },
 
     async loadSettings() {
@@ -1890,8 +1855,7 @@ function supervisorApp() {
     },
 
     normalizeGithubSetting(s) {
-      if (typeof s !== 'string') return '';
-      return s.trim().replace(/\s+/g, ' ');
+      return FlowiSettingsParse.normalizeGithubSetting(s);
     },
 
     async saveSupervisorPin() {
@@ -2372,9 +2336,7 @@ function supervisorApp() {
       return Math.floor(this.elapsedSec(startTime) / 60);
     },
     formatDuration(totalSec) {
-      const m = Math.floor(totalSec / 60).toString().padStart(2, '0');
-      const s = (totalSec % 60).toString().padStart(2, '0');
-      return `${m}:${s}`;
+      return FlowiSupervisorFormat.formatDuration(totalSec);
     },
     formatRemainingSpoken(totalSec) {
       return FlowiDirectoryCredits.formatRemainingSpoken(totalSec);
@@ -2411,12 +2373,10 @@ function supervisorApp() {
       return FlowiDirectoryCredits.formatRemainingSpoken(this.directoryRemainingSeconds(agent));
     },
     formatTime(iso) {
-      if (!iso) return '—';
-      return new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      return FlowiSupervisorFormat.formatTime(iso);
     },
     formatDate(iso) {
-      if (!iso) return '—';
-      return new Date(iso).toLocaleDateString('fr-FR');
+      return FlowiSupervisorFormat.formatDate(iso);
     },
   };
 }
