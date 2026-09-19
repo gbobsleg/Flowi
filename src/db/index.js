@@ -88,8 +88,15 @@ async function init() {
   return pool;
 }
 
+async function close() {
+  if (!pool) return;
+  await pool.end();
+  pool = null;
+}
+
 module.exports = {
   init,
+  close,
   getPool,
   query,
   queryOne,
