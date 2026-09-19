@@ -7,7 +7,7 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "seed": "node scripts/seed.js",
-    "test": "node --test tests/genesysPlanningImport.test.js tests/pauseWindows.test.js tests/pauseBudget.test.js tests/pauseIdentity.test.js"
+    "test": "node --test --test-concurrency=1 \"tests/**/*.test.js\""
   },
   "dependencies": {
     "cookie-parser": "^1.4.6",

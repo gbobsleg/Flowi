@@ -1,0 +1,15 @@
+services:
+  postgres-test:
+    image: postgres:16
+    container_name: flowi-postgres-test
+    environment:
+      POSTGRES_USER: flowi
+      POSTGRES_PASSWORD: flowi
+      POSTGRES_DB: flowi_test
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flowi -d flowi_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
