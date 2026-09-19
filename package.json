@@ -2,12 +2,13 @@
   "name": "app-pauses",
   "version": "1.0.0",
   "description": "Gestion des temps de pause - centre d'appels",
-  "main": "src/server.js",
+  "main": "dist/server.js",
   "scripts": {
-    "start": "node src/server.js",
-    "dev": "node --watch src/server.js",
+    "build": "tsc && node scripts/copy-migrations.js",
+    "start": "node dist/server.js",
+    "dev": "npm run build && concurrently -k \"tsc --watch --preserveWatchOutput\" \"node --watch dist/server.js\"",
     "seed": "node scripts/seed.js",
-    "test": "node --test --test-concurrency=1 \"tests/**/*.test.js\""
+    "test": "npm run build && node --test --test-concurrency=1 \"tests/**/*.test.js\""
   },
   "dependencies": {
     "cookie-parser": "^1.4.6",
@@ -21,6 +22,10 @@
     "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "socket.io-client": "^4.8.3"
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.2",
+    "concurrently": "^10.0.5",
+    "socket.io-client": "^4.8.3",
+    "typescript": "^7.0.2"
   }
 }

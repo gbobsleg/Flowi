@@ -1,16 +1,35 @@
 'use strict';
 
-function pad2(n) {
+export type PauseWindowInput = { start?: unknown; end?: unknown };
+
+export type NormalizedWindow = {
+  start: string;
+  end: string;
+  startMin: number;
+  endMin: number;
+};
+
+export type PublicWindow = { start: string; end: string };
+
+export type NextOpen = { hhmm: string; tomorrow: boolean };
+
+export type PauseWindowStatus = {
+  windows: PublicWindow[];
+  open: boolean;
+  nextOpen: NextOpen | null;
+};
+
+function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
-function minutesToHm(minutes) {
+function minutesToHm(minutes: number): string {
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
   return `${pad2(h)}:${pad2(m)}`;
 }
 
-function hmToMinutes(raw) {
+function hmToMinutes(raw: unknown): number | null {
   const m = String(raw || '').trim().match(/^(\d{1,2}):(\d{2})$/);
   if (!m) return null;
   const h = Number(m[1]);
@@ -19,22 +38,22 @@ function hmToMinutes(raw) {
   return h * 60 + min;
 }
 
-function parsePauseWindows(raw) {
+function parsePauseWindows(raw: unknown): PauseWindowInput[] {
   if (!raw) return [];
-  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw)) return raw as PauseWindowInput[];
   if (typeof raw !== 'string') return [];
   try {
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (_) {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as PauseWindowInput[]) : [];
+  } catch {
     return [];
   }
 }
 
-function normalizeWindows(windows) {
+function normalizeWindows(windows: unknown): NormalizedWindow[] {
   if (!Array.isArray(windows)) return [];
-  const out = [];
-  for (const w of windows) {
+  const out: NormalizedWindow[] = [];
+  for (const w of windows as PauseWindowInput[]) {
     const start = hmToMinutes(w && w.start);
     const end = hmToMinutes(w && w.end);
     if (start == null || end == null) continue;
@@ -45,18 +64,13 @@ function normalizeWindows(windows) {
   return out;
 }
 
-function isInsidePauseWindows(minutesOfDay, windows) {
+function isInsidePauseWindows(minutesOfDay: number, windows: unknown): boolean {
   const sorted = normalizeWindows(windows);
   if (!sorted.length) return true;
   return sorted.some((w) => minutesOfDay >= w.startMin && minutesOfDay < w.endMin);
 }
 
-/**
- * @param {number} minutesOfDay minutes depuis minuit (horloge Paris)
- * @param {Array|{start:string,end:string}} windows
- * @returns {{ windows: Array<{start:string,end:string}>, open: boolean, nextOpen: { hhmm: string, tomorrow: boolean } | null }}
- */
-function pauseWindowStatus(minutesOfDay, windows) {
+function pauseWindowStatus(minutesOfDay: number, windows: unknown): PauseWindowStatus {
   const sorted = normalizeWindows(windows);
   const publicWindows = sorted.map((w) => ({ start: w.start, end: w.end }));
 

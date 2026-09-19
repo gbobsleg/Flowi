@@ -4,7 +4,7 @@
  */
 require('dotenv').config();
 
-const db = require('../src/db');
+const db = require('../dist/db');
 
 const now = new Date().toISOString();
 

@@ -1,17 +1,46 @@
 'use strict';
 
-function parseEnabled(raw) {
+import type { PublicBudget } from './pauseBudget';
+
+type QueryResult = { rows?: Array<{ value?: string }> };
+type Queryable = { query: (sql: string, params?: unknown[]) => Promise<QueryResult> };
+
+type PauseRow = {
+  id?: unknown;
+  start_time?: unknown;
+  agent_matricule?: string;
+};
+
+type SnapshotEntry = {
+  pauses?: PauseRow[];
+  [key: string]: unknown;
+};
+
+type PauseEventPayload = {
+  pauseId?: unknown;
+  offerCode?: unknown;
+  agent_matricule?: string;
+  pauseBudget?: PublicBudget;
+  startTime?: unknown;
+  allowedSeconds?: unknown;
+  [key: string]: unknown;
+};
+
+type SocketRoom = { emit: (event: string, payload: unknown) => void };
+type SocketServer = {
+  emit: (event: string, payload: unknown) => void;
+  to?: (room: string) => SocketRoom;
+  except?: (room: string) => SocketServer;
+};
+
+function parseEnabled(raw: unknown): boolean {
   if (raw == null) return false;
   return String(raw).trim() === '1';
 }
 
-/**
- * @param {import('pg').PoolClient|{query: Function}|null} [client]
- * @returns {Promise<boolean>}
- */
-async function loadAnonymizeAgentNames(client) {
+async function loadAnonymizeAgentNames(client?: Queryable | null): Promise<boolean> {
   const sql = "SELECT value FROM app_settings WHERE key = 'anonymize_agent_names'";
-  let row;
+  let row: { value?: string } | undefined;
   if (client && typeof client.query === 'function') {
     const result = await client.query(sql);
     row = result.rows && result.rows[0];
@@ -22,9 +51,9 @@ async function loadAnonymizeAgentNames(client) {
   return parseEnabled(row && row.value);
 }
 
-function redactPause(pause, selfMatricule) {
+function redactPause(pause: PauseRow | null | undefined, selfMatricule?: string | null): Record<string, unknown> {
   const src = pause && typeof pause === 'object' ? pause : {};
-  const out = {
+  const out: Record<string, unknown> = {
     id: src.id,
     start_time: src.start_time,
   };
@@ -34,19 +63,20 @@ function redactPause(pause, selfMatricule) {
   return out;
 }
 
-function redactSnapshot(snapshot, selfMatricule) {
+function redactSnapshot(snapshot: unknown, selfMatricule?: string | null): SnapshotEntry[] {
   if (!Array.isArray(snapshot)) return [];
-  return snapshot.map((entry) => ({
-    ...entry,
-    pauses: Array.isArray(entry && entry.pauses)
-      ? entry.pauses.map((p) => redactPause(p, selfMatricule))
-      : [],
-  }));
+  return (snapshot as SnapshotEntry[]).map((entry) => {
+    const pauses = entry && entry.pauses;
+    return {
+      ...entry,
+      pauses: Array.isArray(pauses) ? pauses.map((p) => redactPause(p, selfMatricule)) : [],
+    };
+  });
 }
 
-function publicPauseEvent(payload) {
+function publicPauseEvent(payload: PauseEventPayload | null | undefined): Record<string, unknown> {
   const src = payload && typeof payload === 'object' ? payload : {};
-  const out = {
+  const out: Record<string, unknown> = {
     pauseId: src.pauseId,
     offerCode: src.offerCode,
   };
@@ -54,30 +84,29 @@ function publicPauseEvent(payload) {
   return out;
 }
 
-function agentPauseEvent(payload) {
+function agentPauseEvent(payload: PauseEventPayload | null | undefined): Record<string, unknown> {
   const src = payload && typeof payload === 'object' ? payload : {};
-  const out = {
+  const out: Record<string, unknown> = {
     pauseId: src.pauseId,
     offerCode: src.offerCode,
     agent_matricule: src.agent_matricule,
-    pauseBudget: src.pauseBudget,
+    pauseBudget: src.pauseBudget as PublicBudget | undefined,
   };
   if (src.startTime != null) out.startTime = src.startTime;
   if (src.allowedSeconds != null) out.allowedSeconds = src.allowedSeconds;
   return out;
 }
 
-function agentRoom(matricule) {
+function agentRoom(matricule: string): string {
   return `agent:${matricule}`;
 }
 
-/**
- * @param {import('socket.io').Server} io
- * @param {string} eventName
- * @param {object} fullPayload
- * @param {boolean} anonymize
- */
-function broadcastPauseEvent(io, eventName, fullPayload, anonymize) {
+function broadcastPauseEvent(
+  io: SocketServer | null | undefined,
+  eventName: string,
+  fullPayload: PauseEventPayload,
+  anonymize: boolean
+): void {
   if (!io || typeof io.emit !== 'function') return;
   if (!anonymize) {
     io.emit(eventName, fullPayload);

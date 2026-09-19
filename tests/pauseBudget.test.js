@@ -7,7 +7,7 @@ const {
   currentWindowBounds,
   parseMaxPauses,
   parisDayBounds,
-} = require('../src/lib/pauseBudget');
+} = require('../dist/lib/pauseBudget');
 
 const WINDOWS = [
   { start: '10:00', end: '11:00' },

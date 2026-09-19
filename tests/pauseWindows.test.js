@@ -2,7 +2,7 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { pauseWindowStatus, isInsidePauseWindows } = require('../src/lib/pauseWindows');
+const { pauseWindowStatus, isInsidePauseWindows } = require('../dist/lib/pauseWindows');
 
 const WINDOWS = [
   { start: '09:00', end: '12:00' },

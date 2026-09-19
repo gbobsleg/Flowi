@@ -9,7 +9,7 @@ const {
   agentPauseEvent,
   broadcastPauseEvent,
   agentRoom,
-} = require('../src/lib/pauseIdentity');
+} = require('../dist/lib/pauseIdentity');
 
 const SELF = 'A001';
 const OTHER = 'A002';

@@ -5,9 +5,9 @@ const { assertSafeTestDatabase } = require('./guard');
 assertSafeTestDatabase();
 
 const { io: ioClient } = require('socket.io-client');
-const db = require('../../src/db');
-const { createApp } = require('../../src/createApp');
-const { getParisClock } = require('../../src/lib/pauseCredits');
+const db = require('../../dist/db');
+const { createApp } = require('../../dist/createApp');
+const { getParisClock } = require('../../dist/lib/pauseCredits');
 
 const TRUNCATE_SQL = `
   TRUNCATE
