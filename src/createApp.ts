@@ -1,12 +1,14 @@
 'use strict';
 
+import type { NextFunction, Request, Response } from 'express';
+
 const http = require('http');
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const { Server } = require('socket.io');
 const path = require('path');
 
-const db = require('./db');
+import db = require('./db');
 const { router: agentRouter, buildSnapshot } = require('./routes/agentRoutes');
 const supervisorRouter = require('./routes/supervisorRoutes');
 const systemRouter = require('./routes/systemRoutes');
@@ -15,18 +17,28 @@ const {
   redactSnapshot,
 } = require('./lib/pauseIdentity');
 
+type SessionRecord = { socketId: string; deviceId: string };
+
+/** Socket.io minimal : assez pour app.get('io').to(...).emit(...) */
+type AppIo = {
+  sockets: { sockets: Map<string, any> };
+  to(room: string): { emit(event: string, payload?: unknown): void };
+  on(event: string, listener: (socket: any) => void): void;
+  emit(event: string, payload?: unknown): void;
+};
+
 function createApp() {
   const app = express();
   const server = http.createServer(app);
-  const io = new Server(server, {
+  const io: AppIo = new Server(server, {
     cors: { origin: '*' },
     connectionStateRecovery: {},
   });
 
-  const activeSessions = new Map();
-  const socketToMatricule = new Map();
+  const activeSessions = new Map<string, SessionRecord>();
+  const socketToMatricule = new Map<string, string>();
 
-  function releaseSessionByMatricule(agentMatricule) {
+  function releaseSessionByMatricule(agentMatricule: unknown) {
     const matricule = typeof agentMatricule === 'string' ? agentMatricule.trim() : '';
     if (!matricule) return { released: false, reason: 'INVALID_MATRICULE' };
 
@@ -47,7 +59,7 @@ function createApp() {
     return { released: true, socketId, kicked };
   }
 
-  function hasActiveSession(agentMatricule) {
+  function hasActiveSession(agentMatricule: unknown) {
     const matricule = typeof agentMatricule === 'string' ? agentMatricule.trim() : '';
     if (!matricule) return false;
     const session = activeSessions.get(matricule);
@@ -69,19 +81,18 @@ function createApp() {
   app.use('/api/supervisor', supervisorRouter);
   app.use('/api/supervisor/system', systemRouter);
 
-  app.get('/api/health', (_req, res) => res.json({ ok: true, ts: new Date().toISOString() }));
+  app.get('/api/health', (_req: Request, res: Response) => res.json({ ok: true, ts: new Date().toISOString() }));
 
-  app.use('/api', (_req, res) => {
+  app.use('/api', (_req: Request, res: Response) => {
     res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Endpoint inconnu' } });
   });
 
-  // eslint-disable-next-line no-unused-vars
-  app.use((err, _req, res, _next) => {
+  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
     console.error('[Unhandled Express Error]', err);
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Erreur serveur interne' } });
   });
 
-  io.on('connection', (socket) => {
+  io.on('connection', (socket: any) => {
     const clientId = socket.id;
     console.log(`[socket] Connexion: ${clientId}`);
 
@@ -90,14 +101,14 @@ function createApp() {
         const snapshot = await buildSnapshot();
         const anonymize = await loadAnonymizeAgentNames();
         socket.emit('state:snapshot', anonymize ? redactSnapshot(snapshot) : snapshot);
-        const mRow = await db.queryOne("SELECT value FROM app_settings WHERE key = 'maintenance_mode'");
+        const mRow = await db.queryOne<{ value: string }>("SELECT value FROM app_settings WHERE key = 'maintenance_mode'");
         socket.emit('system:maintenance-mode', { active: mRow ? mRow.value === '1' : false });
       } catch (err) {
         console.error('[socket] initialisation', err);
       }
     })();
 
-    socket.on('join:offer', ({ offerCode } = {}) => {
+    socket.on('join:offer', ({ offerCode }: { offerCode?: unknown } = {}) => {
       if (typeof offerCode === 'string' && offerCode.trim()) {
         const roomName = `offer:${offerCode.trim().toUpperCase()}`;
         socket.join(roomName);
@@ -109,11 +120,11 @@ function createApp() {
       socket.join('supervisor');
       console.log(`[socket] ${clientId} a rejoint la room superviseur`);
       buildSnapshot()
-        .then((snapshot) => socket.emit('state:snapshot', snapshot))
-        .catch((err) => console.error('[socket] snapshot superviseur', err));
+        .then((snapshot: unknown) => socket.emit('state:snapshot', snapshot))
+        .catch((err: unknown) => console.error('[socket] snapshot superviseur', err));
     });
 
-    socket.on('agent:identify', ({ agent_matricule, device_id } = {}) => {
+    socket.on('agent:identify', ({ agent_matricule, device_id }: { agent_matricule?: unknown; device_id?: unknown } = {}) => {
       const matricule = typeof agent_matricule === 'string' ? agent_matricule.trim() : '';
       const deviceId = typeof device_id === 'string' ? device_id.trim() : '';
       if (!matricule) return;

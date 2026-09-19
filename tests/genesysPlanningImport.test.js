@@ -11,7 +11,7 @@ const {
   canonicalWfmLabel,
   computeUnmapped,
   slotsByDay,
-} = require('../src/services/genesysPlanningImport');
+} = require('../dist/services/genesysPlanningImport');
 
 const FIXTURE = path.join(
   __dirname,

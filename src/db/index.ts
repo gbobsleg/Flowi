@@ -1,10 +1,14 @@
+'use strict';
+
+import type { PoolClient, QueryResult, QueryResultRow } from 'pg';
+
 const { Pool } = require('pg');
 const path = require('path');
 const fs = require('fs');
 const config = require('../config');
 const { rebuildPlanningSlots } = require('./planning');
 
-let pool = null;
+let pool: InstanceType<typeof Pool> | null = null;
 
 function createPool() {
   return new Pool({ connectionString: config.DATABASE_URL });
@@ -17,21 +21,21 @@ function getPool() {
   return pool;
 }
 
-async function query(sql, params = []) {
+async function query<T extends QueryResultRow = any>(sql: string, params: any[] = []): Promise<QueryResult<T>> {
   return getPool().query(sql, params);
 }
 
-async function queryOne(sql, params = []) {
-  const result = await query(sql, params);
+async function queryOne<T extends QueryResultRow = any>(sql: string, params: any[] = []): Promise<T | undefined> {
+  const result = await query<T>(sql, params);
   return result.rows[0];
 }
 
-async function queryAll(sql, params = []) {
-  const result = await query(sql, params);
+async function queryAll<T extends QueryResultRow = any>(sql: string, params: any[] = []): Promise<T[]> {
+  const result = await query<T>(sql, params);
   return result.rows;
 }
 
-async function withTransaction(fn) {
+async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await getPool().connect();
   try {
     await client.query('BEGIN');
@@ -50,7 +54,7 @@ async function withTransaction(fn) {
   }
 }
 
-async function applyMigrations() {
+async function applyMigrations(): Promise<void> {
   await query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       filename TEXT PRIMARY KEY,
@@ -60,11 +64,11 @@ async function applyMigrations() {
 
   const migrationsDir = path.join(__dirname, 'migrations');
   const migrationFiles = fs.readdirSync(migrationsDir)
-    .filter(f => f.endsWith('.sql'))
+    .filter((f: string) => f.endsWith('.sql'))
     .sort();
 
   for (const file of migrationFiles) {
-    const alreadyApplied = await queryOne(
+    const alreadyApplied = await queryOne<{ filename: string }>(
       'SELECT filename FROM schema_migrations WHERE filename = $1',
       [file]
     );
@@ -88,13 +92,13 @@ async function init() {
   return pool;
 }
 
-async function close() {
+async function close(): Promise<void> {
   if (!pool) return;
   await pool.end();
   pool = null;
 }
 
-module.exports = {
+export = {
   init,
   close,
   getPool,
