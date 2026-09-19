@@ -100,6 +100,14 @@ async function loginSupervisor(baseUrl, pin = '1234') {
   return res.json.token;
 }
 
+async function loginSupervisorInBrowser(page, baseUrl, pin = '1234') {
+  await page.goto(`${baseUrl}/supervisor/`, { waitUntil: 'domcontentloaded', timeout: 10_000 });
+  await page.locator('#sv-login-pin').waitFor({ state: 'visible', timeout: 10_000 });
+  await page.locator('#sv-login-pin').fill(pin);
+  await page.getByRole('button', { name: 'Accéder' }).click();
+  await page.getByRole('button', { name: 'Historique' }).waitFor({ state: 'visible', timeout: 10_000 });
+}
+
 function connectSupervisorSocket(baseUrl) {
   const socket = ioClient(baseUrl, { transports: ['websocket'], forceNew: true });
   return new Promise((resolve, reject) => {
@@ -166,6 +174,7 @@ module.exports = {
   stopTestApp,
   requestJson,
   loginSupervisor,
+  loginSupervisorInBrowser,
   connectSupervisorSocket,
   waitForEvent,
   closedWindowsFarFromNow,
