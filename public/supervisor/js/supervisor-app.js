@@ -1,8 +1,5 @@
 'use strict';
 
-const SUPERVISOR_TAB_IDS = new Set(['live', 'history', 'grid', 'directory', 'settings', 'about']);
-const SETTINGS_SUBTAB_IDS = new Set(['general', 'offers', 'planning', 'access']);
-const LEGACY_TAB_REDIRECTS = { quotas: 'live', planning: 'grid' };
 const PLANNING_IMPORT_WEEKDAY_OPTIONS = [
   { value: 1, label: 'lun' },
   { value: 2, label: 'mar' },
@@ -12,40 +9,6 @@ const PLANNING_IMPORT_WEEKDAY_OPTIONS = [
   { value: 6, label: 'sam' },
   { value: 7, label: 'dim' },
 ];
-
-function parseSupervisorHash(hash) {
-  const raw = String(hash || '').replace(/^#/, '').trim();
-  const parts = raw.split('/').filter(Boolean);
-  const seg0 = parts[0] || '';
-  const seg1 = parts[1] || '';
-
-  if (!seg0) {
-    return { tab: 'live', settingsSubtab: 'general', canonical: 'live', rewrite: true };
-  }
-  if (LEGACY_TAB_REDIRECTS[seg0]) {
-    const tab = LEGACY_TAB_REDIRECTS[seg0];
-    return { tab, settingsSubtab: 'general', canonical: tab, rewrite: true };
-  }
-  if (!SUPERVISOR_TAB_IDS.has(seg0)) {
-    return { tab: 'live', settingsSubtab: 'general', canonical: 'live', rewrite: true };
-  }
-  if (seg0 === 'settings') {
-    const sub = SETTINGS_SUBTAB_IDS.has(seg1) ? seg1 : 'general';
-    const canonical = `settings/${sub}`;
-    return {
-      tab: 'settings',
-      settingsSubtab: sub,
-      canonical,
-      rewrite: raw !== canonical,
-    };
-  }
-  return {
-    tab: seg0,
-    settingsSubtab: 'general',
-    canonical: seg0,
-    rewrite: parts.length > 1,
-  };
-}
 
 function supervisorLocationBase() {
   return window.location.pathname + (window.location.search || '');
@@ -108,7 +71,7 @@ function initialRouteFromHash() {
   if (typeof window === 'undefined') {
     return { tab: 'live', settingsSubtab: 'general' };
   }
-  return parseSupervisorHash(window.location.hash);
+  return FlowiSupervisorTabs.parseSupervisorHash(window.location.hash);
 }
 
 function supervisorApp() {
@@ -426,28 +389,23 @@ function supervisorApp() {
     /** Met à jour activeTab / settingsSubtab depuis location.hash ; charge async délégué au $watch(activeTab). */
     applyHashChangeToActiveTab() {
       if (!this.isAuth) return;
-      this.applyParsedSupervisorRoute(parseSupervisorHash(window.location.hash));
+      this.applyParsedSupervisorRoute(FlowiSupervisorTabs.parseSupervisorHash(window.location.hash));
     },
 
     /** Au premier affichage authentifié : hash vide/invalide/legacy → replaceState ; sinon état = hash. */
     syncSupervisorTabFromUrl() {
-      this.applyParsedSupervisorRoute(parseSupervisorHash(window.location.hash));
+      this.applyParsedSupervisorRoute(FlowiSupervisorTabs.parseSupervisorHash(window.location.hash));
     },
 
     /** Clic onglet : navigation native (historique) ; activeTab mis à jour via hashchange. */
     navigateToTab(tabId) {
-      if (!SUPERVISOR_TAB_IDS.has(tabId)) return;
-      if (tabId === 'settings') {
-        const sub = SETTINGS_SUBTAB_IDS.has(this.settingsSubtab) ? this.settingsSubtab : 'general';
-        window.location.hash = `#settings/${sub}`;
-        return;
-      }
-      window.location.hash = `#${tabId}`;
+      const hash = FlowiSupervisorTabs.hashForTab(tabId, this.settingsSubtab);
+      if (!hash) return;
+      window.location.hash = `#${hash}`;
     },
 
     navigateToSettingsSubtab(sub) {
-      const next = SETTINGS_SUBTAB_IDS.has(sub) ? sub : 'general';
-      window.location.hash = `#settings/${next}`;
+      window.location.hash = `#${FlowiSupervisorTabs.hashForSettingsSubtab(sub)}`;
     },
 
     async loadSettingsSubtabData(sub) {
