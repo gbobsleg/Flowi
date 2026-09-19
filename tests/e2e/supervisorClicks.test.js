@@ -2,6 +2,7 @@
 
 const { describe, it, before, after, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('node:path');
 
 const e2eEnabled = process.env.NODE_ENV === 'test' && !!process.env.DATABASE_URL;
 if (e2eEnabled) {
@@ -99,5 +100,46 @@ describe('Clics superviseur', { skip: !e2eEnabled }, () => {
     await row.waitFor({ state: 'visible' });
     await row.getByText('Hors plage').first().waitFor({ state: 'visible' });
     assert.equal(await row.getByText('Hors plage', { exact: true }).count(), 2);
+  });
+
+  it('PIN faux affiche Authentification requise puis 1234 ouvre les onglets', async () => {
+    await page.goto(`${ctx.baseUrl}/supervisor/`, { waitUntil: 'domcontentloaded', timeout: 10_000 });
+    await page.locator('#sv-login-pin').waitFor({ state: 'visible' });
+
+    await page.locator('#sv-login-pin').fill('0000');
+    await page.getByRole('button', { name: 'Accéder' }).click();
+    await page.getByText('Authentification requise').waitFor({ state: 'visible' });
+    await page.getByRole('button', { name: 'Historique' }).waitFor({ state: 'hidden' });
+    assert.equal(await page.getByRole('button', { name: 'Historique' }).isVisible(), false);
+
+    await page.locator('#sv-login-pin').fill('1234');
+    await page.getByRole('button', { name: 'Accéder' }).click();
+    await page.getByRole('button', { name: 'Historique' }).waitFor({ state: 'visible' });
+  });
+
+  it('Les onglets Temps réel, Historique et Grille affichent leur écran', async () => {
+    await helpers.loginSupervisorInBrowser(page, ctx.baseUrl);
+
+    await page.getByRole('button', { name: 'Temps réel' }).click();
+    await page.getByRole('heading', { name: 'Agents en pause — Temps réel' }).waitFor({ state: 'visible' });
+
+    await page.getByRole('button', { name: 'Historique' }).click();
+    await page.getByText('Aucun historique disponible.').waitFor({ state: 'visible' });
+
+    await page.getByRole('button', { name: 'Grille' }).click();
+    await page.getByRole('heading', { name: 'Grille 15 minutes' }).waitFor({ state: 'visible' });
+  });
+
+  it('L’aperçu d’import CSV liste les 3 jours et les activités sans offre', async () => {
+    const fixturePath = path.resolve(__dirname, '..', 'fixtures', 'genesys-planning-individuel.anonymized.csv');
+
+    await helpers.loginSupervisorInBrowser(page, ctx.baseUrl);
+    await page.getByRole('button', { name: 'Paramètres' }).click();
+    await page.getByRole('button', { name: 'Planning' }).click();
+    await page.getByRole('heading', { name: 'Importer un planning' }).waitFor({ state: 'visible' });
+
+    await page.locator('input[type="file"]').setInputFiles(fixturePath);
+    await page.getByText('3 jours seront remplacés, du 06/10/2026 au 25/12/2026.').waitFor({ state: 'visible' });
+    await page.getByText('ACCUR, CESU, REPAS', { exact: true }).waitFor({ state: 'visible' });
   });
 });
