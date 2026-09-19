@@ -1,39 +1,47 @@
-const express      = require('express');
-const router       = express.Router();
-const https        = require('https');
-const { spawn }    = require('child_process');
-const path         = require('path');
-const fs           = require('fs');
-const config       = require('../config');
-const db           = require('../db');
+'use strict';
+
+import type { Request, Response } from 'express';
+
+const express = require('express');
+const router = express.Router();
+const https = require('https');
+const { spawn } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+const config = require('../config');
+import db = require('../db');
 const { requireSupervisor } = require('../middlewares/supervisorAuth');
-const { Errors }   = require('../middlewares/validate');
+const { Errors } = require('../middlewares/validate');
+
+type GithubResponse = { status: number; body: any };
+type PackageJson = { name?: string; version?: string; dependencies?: Record<string, string> };
+type AppIo = { emit: (event: string, payload?: unknown) => void };
 
 // Verrou : un seul update à la fois
 let updateRunning = false;
-let currentUpdateId = null;
+let currentUpdateId: string | null = null;
 
 // ---------- helpers ----------
 
-function githubGet(urlPath) {
+function githubGet(urlPath: string): Promise<GithubResponse> {
   return new Promise((resolve, reject) => {
     const opts = {
       hostname: 'api.github.com',
-      path:     urlPath,
-      headers:  { 'User-Agent': 'app-pauses-ota/1.0', 'Accept': 'application/vnd.github+json' },
+      path: urlPath,
+      headers: { 'User-Agent': 'app-pauses-ota/1.0', Accept: 'application/vnd.github+json' },
     };
-    https.get(opts, res => {
+    https.get(opts, (res: { statusCode?: number; on: (event: string, cb: (chunk?: any) => void) => void }) => {
       let d = '';
-      res.on('data', c => d += c);
+      res.on('data', (c) => { d += c; });
       res.on('end', () => {
-        try { resolve({ status: res.statusCode, body: JSON.parse(d) }); }
+        try { resolve({ status: res.statusCode ?? 0, body: JSON.parse(d) }); }
         catch { reject(new Error('Réponse GitHub non-JSON')); }
       });
     }).on('error', reject);
   });
 }
 
-function readPackageJson() {
+function readPackageJson(): PackageJson {
   try {
     return JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf8'));
   } catch {
@@ -41,11 +49,11 @@ function readPackageJson() {
   }
 }
 
-function localVersion() {
+function localVersion(): string {
   return readPackageJson().version || '0.0.0';
 }
 
-function installedVersion(pkgName) {
+function installedVersion(pkgName: string): string | null {
   try {
     return require(`${pkgName}/package.json`).version || null;
   } catch {
@@ -53,7 +61,7 @@ function installedVersion(pkgName) {
   }
 }
 
-const DEP_ROLES = {
+const DEP_ROLES: Record<string, string> = {
   express: 'Serveur web',
   pg: 'Base de données',
   'socket.io': 'Mises à jour en direct',
@@ -62,7 +70,7 @@ const DEP_ROLES = {
   uuid: 'Identifiants',
 };
 
-function semverGt(a, b) {
+function semverGt(a: string, b: string): boolean {
   const pa = a.replace(/^v/, '').split('.').map(Number);
   const pb = b.replace(/^v/, '').split('.').map(Number);
   for (let i = 0; i < 3; i++) {
@@ -72,13 +80,13 @@ function semverGt(a, b) {
   return false;
 }
 
-async function readSetting(key) {
-  const row = await db.queryOne('SELECT value FROM app_settings WHERE key = $1', [key]);
+async function readSetting(key: string): Promise<string> {
+  const row = await db.queryOne<{ value: string }>('SELECT value FROM app_settings WHERE key = $1', [key]);
   if (!row || typeof row.value !== 'string') return '';
   return row.value.trim();
 }
 
-async function resolveOtaRepo() {
+async function resolveOtaRepo(): Promise<{ owner: string; repo: string }> {
   const ownerFromDb = await readSetting('github_owner');
   const repoFromDb = await readSetting('github_repo');
 
@@ -94,13 +102,13 @@ async function resolveOtaRepo() {
  * GET /api/supervisor/system/about
  * Versions installées (package.json + Node + PostgreSQL) pour l’onglet À propos.
  */
-router.get('/about', requireSupervisor, async (req, res) => {
+router.get('/about', requireSupervisor, async (_req: Request, res: Response) => {
   try {
     const pkg = readPackageJson();
 
-    let database = null;
+    let database: string | null = null;
     try {
-      const row = await db.queryOne("SELECT current_setting('server_version') AS version");
+      const row = await db.queryOne<{ version: string }>("SELECT current_setting('server_version') AS version");
       database = row && row.version ? String(row.version) : null;
     } catch {
       database = null;
@@ -141,7 +149,7 @@ router.get('/about', requireSupervisor, async (req, res) => {
  * GET /api/supervisor/system/update/check
  * Compare la version locale (package.json) avec la dernière release GitHub.
  */
-router.get('/update/check', requireSupervisor, async (req, res) => {
+router.get('/update/check', requireSupervisor, async (_req: Request, res: Response) => {
   try {
     const { owner, repo } = await resolveOtaRepo();
 
@@ -159,17 +167,17 @@ router.get('/update/check', requireSupervisor, async (req, res) => {
     if (status === 404) return Errors.notFound(res, 'Aucune release GitHub disponible');
     if (status !== 200) return res.status(502).json({ error: { code: 'GITHUB_ERROR', message: `GitHub a répondu avec le code ${status}` } });
 
-    const remoteVersion = (body.tag_name || '').replace(/^v/, '');
-    const localVer      = localVersion();
+    const remoteVersion = String(body.tag_name || '').replace(/^v/, '');
+    const localVer = localVersion();
     const updateAvailable = semverGt(remoteVersion, localVer);
 
     res.json({
-      localVersion:    localVer,
+      localVersion: localVer,
       remoteVersion,
       updateAvailable,
-      releaseUrl:      body.html_url  || null,
-      releaseName:     body.name      || null,
-      publishedAt:     body.published_at || null,
+      releaseUrl: body.html_url || null,
+      releaseName: body.name || null,
+      publishedAt: body.published_at || null,
       updateRunning,
     });
   } catch (err) {
@@ -182,7 +190,7 @@ router.get('/update/check', requireSupervisor, async (req, res) => {
  * Déclenche le script de mise à jour via child_process.spawn.
  * Streame stdout/stderr vers les clients via Socket.io (system:update-log).
  */
-router.post('/update', requireSupervisor, (req, res) => {
+router.post('/update', requireSupervisor, (req: Request, res: Response) => {
   try {
     if (updateRunning) {
       return res.status(409).json({ error: { code: 'UPDATE_ALREADY_RUNNING', message: 'Une mise à jour est déjà en cours' } });
@@ -196,16 +204,16 @@ router.post('/update', requireSupervisor, (req, res) => {
     const { randomUUID } = require('crypto');
     const updateId = randomUUID();
 
-    updateRunning    = true;
-    currentUpdateId  = updateId;
+    updateRunning = true;
+    currentUpdateId = updateId;
 
-    const io = req.app.get('io');
+    const io = req.app.get('io') as AppIo | undefined;
 
-    function emit(stream, line) {
+    function emit(stream: string, line: string) {
       if (io) io.emit('system:update-log', { updateId, stream, line, ts: new Date().toISOString() });
     }
 
-    function emitStatus(status, extra = {}) {
+    function emitStatus(status: string, extra: Record<string, unknown> = {}) {
       if (io) io.emit('system:update-status', { updateId, status, ts: new Date().toISOString(), ...extra });
     }
 
@@ -227,16 +235,16 @@ router.post('/update', requireSupervisor, (req, res) => {
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
 
-    child.stdout.on('data', chunk => {
-      chunk.split('\n').filter(l => l).forEach(line => emit('stdout', line));
+    child.stdout.on('data', (chunk: string) => {
+      chunk.split('\n').filter((l) => l).forEach((line) => emit('stdout', line));
     });
 
-    child.stderr.on('data', chunk => {
-      chunk.split('\n').filter(l => l).forEach(line => emit('stderr', line));
+    child.stderr.on('data', (chunk: string) => {
+      chunk.split('\n').filter((l) => l).forEach((line) => emit('stderr', line));
     });
 
-    child.on('close', (code, signal) => {
-      updateRunning   = false;
+    child.on('close', (code: number | null, signal: string | null) => {
+      updateRunning = false;
       currentUpdateId = null;
 
       if (code === 0) {
@@ -248,13 +256,12 @@ router.post('/update', requireSupervisor, (req, res) => {
       }
     });
 
-    child.on('error', err => {
-      updateRunning   = false;
+    child.on('error', (err: Error) => {
+      updateRunning = false;
       currentUpdateId = null;
       emit('system', `[OTA] Erreur spawn: ${err.message}`);
       emitStatus('failed', { message: err.message });
     });
-
   } catch (err) {
     updateRunning = false;
     Errors.internal(res, err);
@@ -265,7 +272,7 @@ router.post('/update', requireSupervisor, (req, res) => {
  * GET /api/supervisor/system/update/status
  * Retourne l'état courant du processus OTA.
  */
-router.get('/update/status', requireSupervisor, (req, res) => {
+router.get('/update/status', requireSupervisor, (_req: Request, res: Response) => {
   res.json({ updateRunning, currentUpdateId });
 });
 
