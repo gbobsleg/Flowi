@@ -7,6 +7,9 @@ const {
   directoryStartsLabel,
   directoryRemainingSeconds,
   stampDirectoryCredits,
+  historyExcludeConfirmMessage,
+  historyExcludeButtonLabel,
+  stampAgentPauseBudget,
 } = require('../../public/supervisor/js/directoryCredits');
 
 describe('formatRemainingSpoken', () => {
@@ -94,5 +97,56 @@ describe('stampDirectoryCredits', () => {
     const { rows, empty } = stampDirectoryCredits([], { emptyBudget: {} }, 1);
     assert.equal(empty, true);
     assert.deepEqual(rows, []);
+  });
+});
+
+describe('historyExcludeConfirmMessage', () => {
+  it('Ignorer : pas supprimée, plus décomptée', () => {
+    const msg = historyExcludeConfirmMessage(true);
+    assert.match(msg, /ne sera pas supprimée/);
+    assert.match(msg, /ne sera plus décomptée/);
+  });
+
+  it('Rétablir : de nouveau décomptée', () => {
+    assert.match(historyExcludeConfirmMessage(false), /de nouveau décomptée/);
+  });
+});
+
+describe('historyExcludeButtonLabel', () => {
+  it('Ignorer / Rétablir / en cours', () => {
+    assert.equal(historyExcludeButtonLabel(false, false), 'Ignorer');
+    assert.equal(historyExcludeButtonLabel(true, false), 'Rétablir');
+    assert.equal(historyExcludeButtonLabel(false, true), '…');
+    assert.equal(historyExcludeButtonLabel(true, true), '…');
+  });
+});
+
+describe('stampAgentPauseBudget', () => {
+  it('ne mute pas les lignes d’entrée ; seule MAT_T1 est mise à jour', () => {
+    const oldBudget = { remainingSeconds: 60 };
+    const newBudget = { remainingSeconds: 900 };
+    const alice = { matricule: 'MAT_T1', pauseBudget: oldBudget, _creditsAt: 1 };
+    const bob = { matricule: 'MAT_T2', pauseBudget: { remainingSeconds: 300 }, _creditsAt: 2 };
+    const input = [alice, bob];
+    const { rows, found, directoryCreditsAt } = stampAgentPauseBudget(input, 'MAT_T1', newBudget, 50_000);
+    assert.equal(found, true);
+    assert.equal(directoryCreditsAt, 50_000);
+    assert.equal(rows[0].pauseBudget, newBudget);
+    assert.equal(rows[0]._creditsAt, 50_000);
+    assert.equal(rows[1].pauseBudget, bob.pauseBudget);
+    assert.equal(rows[1]._creditsAt, 2);
+    assert.equal(alice.pauseBudget, oldBudget);
+    assert.equal(alice._creditsAt, 1);
+    assert.equal(input[0], alice);
+  });
+
+  it('matricule inconnu → found false, lignes identiques en valeur', () => {
+    const rowsIn = [{ matricule: 'MAT_T2', pauseBudget: { remainingSeconds: 10 }, _creditsAt: 3 }];
+    const snapshot = JSON.parse(JSON.stringify(rowsIn));
+    const { rows, found } = stampAgentPauseBudget(rowsIn, 'MAT_T1', { remainingSeconds: 1 }, 9);
+    assert.equal(found, false);
+    assert.deepEqual(rowsIn, snapshot);
+    assert.equal(rows[0].matricule, 'MAT_T2');
+    assert.equal(rows[0].pauseBudget.remainingSeconds, 10);
   });
 });

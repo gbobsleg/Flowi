@@ -1220,9 +1220,7 @@ function supervisorApp() {
     },
 
     async setPauseExcludedFromBudget(row, excluded) {
-      const confirmMsg = excluded
-        ? 'Cette pause ne sera pas supprimée : elle restera dans l’historique.\n\nEn revanche, elle ne sera plus décomptée : l’agent récupère le temps de pause et le droit de repartir en pause associés à cette ligne.'
-        : 'Cette pause sera de nouveau décomptée. Le temps de pause restant et le droit de repartir de l’agent seront recalculés comme si elle avait bien eu lieu.';
+      const confirmMsg = FlowiDirectoryCredits.historyExcludeConfirmMessage(excluded);
       if (!confirm(confirmMsg)) return;
       row._excluding = true;
       try {
@@ -1251,10 +1249,24 @@ function supervisorApp() {
 
     applyDirectoryPauseBudget(matricule, pauseBudget) {
       if (!matricule || !pauseBudget) return;
-      const agent = this.directoryRows.find(a => a.matricule === matricule);
-      if (agent) {
-        agent.pauseBudget = pauseBudget;
-        agent._creditsAt = Date.now();
+      const rowsPlain = (this.directoryRows || []).map((a) => ({
+        matricule: a.matricule,
+        pauseWindowOpen: a.pauseWindowOpen,
+        pauseBudget: this._plainPauseBudget(a.pauseBudget),
+        _creditsAt: a._creditsAt,
+      }));
+      const { rows, directoryCreditsAt } = FlowiDirectoryCredits.stampAgentPauseBudget(
+        rowsPlain,
+        matricule,
+        this._plainPauseBudget(pauseBudget),
+        Date.now()
+      );
+      this.directoryCreditsAt = directoryCreditsAt;
+      for (const stamped of rows) {
+        const agent = this.directoryRows.find((a) => a.matricule === stamped.matricule);
+        if (!agent) continue;
+        agent.pauseBudget = stamped.pauseBudget;
+        agent._creditsAt = stamped._creditsAt;
       }
       this.directoryLoaded = false;
     },

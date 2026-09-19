@@ -55,11 +55,48 @@ function stampDirectoryCredits(rows, evt, now) {
   return { rows: next, directoryCreditsAt: at, empty: false };
 }
 
+function historyExcludeConfirmMessage(excluded) {
+  if (excluded) {
+    return 'Cette pause ne sera pas supprimée : elle restera dans l’historique.\n\nEn revanche, elle ne sera plus décomptée : l’agent récupère le temps de pause et le droit de repartir en pause associés à cette ligne.';
+  }
+  return 'Cette pause sera de nouveau décomptée. Le temps de pause restant et le droit de repartir de l’agent seront recalculés comme si elle avait bien eu lieu.';
+}
+
+function historyExcludeButtonLabel(excluded, excluding) {
+  if (excluding) return '…';
+  return excluded ? 'Rétablir' : 'Ignorer';
+}
+
+function stampAgentPauseBudget(rows, matricule, pauseBudget, now) {
+  const list = Array.isArray(rows) ? rows : [];
+  const stamped = Number(now);
+  const at = Number.isFinite(stamped) ? stamped : Date.now();
+  let found = false;
+  const next = list.map((agent) => {
+    const copy = {
+      matricule: agent && agent.matricule,
+      pauseWindowOpen: agent && agent.pauseWindowOpen,
+      pauseBudget: agent && agent.pauseBudget,
+      _creditsAt: agent && agent._creditsAt,
+    };
+    if (matricule && copy.matricule === matricule) {
+      found = true;
+      copy.pauseBudget = pauseBudget;
+      copy._creditsAt = at;
+    }
+    return copy;
+  });
+  return { rows: next, found, directoryCreditsAt: at };
+}
+
 const FlowiDirectoryCredits = {
   formatRemainingSpoken,
   directoryStartsLabel,
   directoryRemainingSeconds,
   stampDirectoryCredits,
+  historyExcludeConfirmMessage,
+  historyExcludeButtonLabel,
+  stampAgentPauseBudget,
 };
 
 if (typeof module !== 'undefined' && module.exports) {
