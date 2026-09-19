@@ -1,9 +1,14 @@
+'use strict';
+
+import type { NextFunction, Request, Response } from 'express';
+import type { PublicBudget } from '../lib/pauseBudget';
+
 const express = require('express');
 const multer  = require('multer');
 const router  = express.Router();
 const db      = require('../db');
 const { createSession, validatePin, requireSupervisor } = require('../middlewares/supervisorAuth');
-const { effectiveQuota, countActivePauses, emitOfferUpdate, emitQuotasUpdate, allowedFromHeadcount } = require('./agentRoutes');
+const { effectiveQuota, countActivePauses, emitOfferUpdate, emitQuotasUpdate, allowedFromHeadcount } = require('../lib/offerQuota');
 const { getParisClock, loadAgentPauseBudget, loadDirectoryPauseCredits, emitDirectoryCredits } = require('../lib/pauseCredits');
 const { Errors, apiError, isValidOfferCode, newOfferCode, isPositiveInt, isPercent } = require('../middlewares/validate');
 const { importGenesysBuffer, analyseGenesysBuffer, GenesysImportError, canonicalWfmLabel, slotsByDay } = require('../services/genesysPlanningImport');
@@ -15,6 +20,18 @@ const {
 
 function nowIso() { return new Date().toISOString(); }
 
+type TxClient = { query: (sql: string, params?: unknown[]) => Promise<any> };
+type UploadReq = Request & { file?: { buffer: Buffer } };
+
+function pgCode(err: unknown): string | undefined {
+  if (!err || typeof err !== 'object' || !('code' in err)) return undefined;
+  return String((err as { code: unknown }).code);
+}
+
+function queryString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
 const SUPERVISOR_PIN_RE = /^\d{4,6}$/;
 
 const UPSERT_SETTING =
@@ -22,12 +39,12 @@ const UPSERT_SETTING =
   'ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value';
 
 /** Normalise propriétaire / nom de dépôt (bords + espaces internes). */
-function normalizeGithubOwnerRepo(raw) {
+function normalizeGithubOwnerRepo(raw: unknown) {
   if (typeof raw !== 'string') return '';
   return raw.trim().replace(/\s+/g, ' ');
 }
 
-function parseOfferColorInput(rawColor) {
+function parseOfferColorInput(rawColor: unknown) {
   if (rawColor === undefined || rawColor === null) return null;
   if (typeof rawColor !== 'string') return { error: 'color doit être une chaîne ou null' };
   const trimmed = rawColor.trim();
@@ -42,7 +59,7 @@ function parseOfferColorInput(rawColor) {
 const OFFER_COLUMNS =
   'id, code, label, default_quota, color, is_active, purge_requested_at, created_at';
 
-async function hardDeleteOffer(client, offerId) {
+async function hardDeleteOffer(client: { query: (sql: string, params?: unknown[]) => Promise<unknown> }, offerId: unknown) {
   await client.query('DELETE FROM quota_rules WHERE offer_id = $1', [offerId]);
   await client.query('UPDATE wfm_activity_mappings SET offer_id = NULL WHERE offer_id = $1', [offerId]);
   await client.query('DELETE FROM planning_slots WHERE offer_id = $1', [offerId]);
@@ -55,7 +72,7 @@ async function hardDeleteOffer(client, offerId) {
  * POST /api/supervisor/auth
  * Body: { pin }
  */
-router.post('/auth', async (req, res) => {
+router.post('/auth', async (req: Request, res: Response) => {
   try {
     const { pin } = req.body;
     if (!pin)               return Errors.missingField(res, 'pin');
@@ -74,7 +91,7 @@ router.post('/auth', async (req, res) => {
 /**
  * POST /api/supervisor/logout
  */
-router.post('/logout', requireSupervisor, (req, res) => {
+router.post('/logout', requireSupervisor, (req: Request, res: Response) => {
   try {
     const { revokeToken } = require('../middlewares/supervisorAuth');
     const token =
@@ -94,7 +111,7 @@ router.post('/logout', requireSupervisor, (req, res) => {
  * GET /api/supervisor/offers
  * Exclut les offres en file de suppression définitive.
  */
-router.get('/offers', requireSupervisor, async (req, res) => {
+router.get('/offers', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const offers = await db.queryAll(
       `SELECT ${OFFER_COLUMNS} FROM offers WHERE purge_requested_at IS NULL ORDER BY code ASC`
@@ -109,7 +126,7 @@ router.get('/offers', requireSupervisor, async (req, res) => {
  * POST /api/supervisor/offers
  * Body: { label, default_quota?, color? } — le code client est ignoré.
  */
-router.post('/offers', requireSupervisor, async (req, res) => {
+router.post('/offers', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const label = typeof req.body.label === 'string' ? req.body.label.trim() : '';
     const defaultQuotaRaw = req.body.default_quota;
@@ -136,8 +153,8 @@ router.post('/offers', requireSupervisor, async (req, res) => {
         );
         break;
       } catch (err) {
-        if (err.code === '23505' && attempt < maxAttempts - 1) continue;
-        if (err.code === '23505') {
+        if (pgCode(err) === '23505' && attempt < maxAttempts - 1) continue;
+        if (pgCode(err) === '23505') {
           return Errors.conflict(res, 'Impossible d’attribuer un code interne unique');
         }
         throw err;
@@ -157,7 +174,7 @@ router.post('/offers', requireSupervisor, async (req, res) => {
  * PUT /api/supervisor/offers/:offerCode
  * Body: { label?, default_quota?, color?, is_active? }
  */
-router.put('/offers/:offerCode', requireSupervisor, async (req, res) => {
+router.put('/offers/:offerCode', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const offerCode = typeof req.params.offerCode === 'string' ? req.params.offerCode.trim() : '';
     if (!isValidOfferCode(offerCode)) {
@@ -241,7 +258,7 @@ router.put('/offers/:offerCode', requireSupervisor, async (req, res) => {
  * DELETE /api/supervisor/offers/:offerCode
  * Suppression définitive : SQL immédiat si aucune pause, sinon file d'attente.
  */
-router.delete('/offers/:offerCode', requireSupervisor, async (req, res) => {
+router.delete('/offers/:offerCode', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const offerCode = typeof req.params.offerCode === 'string' ? req.params.offerCode.trim() : '';
     if (!isValidOfferCode(offerCode)) {
@@ -271,7 +288,7 @@ router.delete('/offers/:offerCode', requireSupervisor, async (req, res) => {
     const historyCount = Number(remaining.cnt);
 
     if (historyCount === 0) {
-      await db.withTransaction(async (client) => {
+      await db.withTransaction(async (client: TxClient) => {
         await hardDeleteOffer(client, existing.id);
       });
 
@@ -306,7 +323,7 @@ router.delete('/offers/:offerCode', requireSupervisor, async (req, res) => {
  * PATCH /api/supervisor/offers/:offerCode/activate
  * Alias de PUT { is_active: true }.
  */
-router.patch('/offers/:offerCode/activate', requireSupervisor, async (req, res) => {
+router.patch('/offers/:offerCode/activate', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const offerCode = typeof req.params.offerCode === 'string' ? req.params.offerCode.trim() : '';
     if (!isValidOfferCode(offerCode)) {
@@ -344,14 +361,14 @@ router.patch('/offers/:offerCode/activate', requireSupervisor, async (req, res) 
 /**
  * GET /api/supervisor/agents?status=active|inactive
  */
-router.get('/agents', requireSupervisor, async (req, res) => {
+router.get('/agents', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const status = typeof req.query.status === 'string' ? req.query.status.trim().toLowerCase() : '';
-    const sessionRegistry = req.app.get('sessionRegistry');
+    const sessionRegistry = req.app.get('sessionRegistry') as { hasActiveSession?: (matricule: string) => boolean } | undefined;
     const hasActiveSession = typeof sessionRegistry?.hasActiveSession === 'function'
       ? sessionRegistry.hasActiveSession
       : () => false;
-    let rows;
+    let rows: Array<{ matricule: string; nom: string; prenom: string; is_active: boolean }>;
 
     if (!status) {
       rows = await db.queryAll(
@@ -370,12 +387,15 @@ router.get('/agents', requireSupervisor, async (req, res) => {
     }
 
     const credits = await loadDirectoryPauseCredits();
-    const enrichedRows = rows.map(agent => ({
-      ...agent,
-      isOnline: hasActiveSession(agent.matricule),
-      pauseWindowOpen: credits.pauseWindowOpen,
-      pauseBudget: credits.budgetByMatricule[agent.matricule] || credits.emptyBudget,
-    }));
+    const enrichedRows = rows.map((agent) => {
+      const pauseBudget: PublicBudget = credits.budgetByMatricule[agent.matricule] || credits.emptyBudget;
+      return {
+        ...agent,
+        isOnline: hasActiveSession(agent.matricule),
+        pauseWindowOpen: credits.pauseWindowOpen === true,
+        pauseBudget,
+      };
+    });
 
     res.json({ agents: enrichedRows });
   } catch (err) {
@@ -387,7 +407,7 @@ router.get('/agents', requireSupervisor, async (req, res) => {
  * POST /api/supervisor/agents
  * Body: { matricule, nom, prenom }
  */
-router.post('/agents', requireSupervisor, async (req, res) => {
+router.post('/agents', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const matricule = typeof req.body.matricule === 'string' ? req.body.matricule.trim() : '';
     const nom = typeof req.body.nom === 'string' ? req.body.nom.trim() : '';
@@ -416,7 +436,7 @@ router.post('/agents', requireSupervisor, async (req, res) => {
 /**
  * PATCH /api/supervisor/agents/:matricule/activate
  */
-router.patch('/agents/:matricule/activate', requireSupervisor, async (req, res) => {
+router.patch('/agents/:matricule/activate', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const matricule = typeof req.params.matricule === 'string' ? req.params.matricule.trim() : '';
     if (!matricule) return Errors.missingField(res, 'matricule');
@@ -437,7 +457,7 @@ router.patch('/agents/:matricule/activate', requireSupervisor, async (req, res) 
 /**
  * PATCH /api/supervisor/agents/:matricule/deactivate
  */
-router.patch('/agents/:matricule/deactivate', requireSupervisor, async (req, res) => {
+router.patch('/agents/:matricule/deactivate', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const matricule = typeof req.params.matricule === 'string' ? req.params.matricule.trim() : '';
     if (!matricule) return Errors.missingField(res, 'matricule');
@@ -458,17 +478,17 @@ router.patch('/agents/:matricule/deactivate', requireSupervisor, async (req, res
 /**
  * DELETE interdit : désactivation logique uniquement.
  */
-router.delete('/agents', requireSupervisor, (req, res) =>
+router.delete('/agents', requireSupervisor, (req: Request, res: Response) =>
   res.status(405).json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'Suppression physique interdite. Utiliser la désactivation.' } })
 );
-router.delete('/agents/:matricule', requireSupervisor, (req, res) =>
+router.delete('/agents/:matricule', requireSupervisor, (req: Request, res: Response) =>
   res.status(405).json({ error: { code: 'METHOD_NOT_ALLOWED', message: 'Suppression physique interdite. Utiliser la désactivation.' } })
 );
 
 /**
  * GET /api/supervisor/quotas
  */
-router.get('/quotas', requireSupervisor, async (req, res) => {
+router.get('/quotas', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const offers = await db.queryAll(
       'SELECT * FROM offers WHERE purge_requested_at IS NULL ORDER BY code'
@@ -502,7 +522,7 @@ router.get('/quotas', requireSupervisor, async (req, res) => {
  * PUT /api/supervisor/quotas/:offerCode
  * Body: { fixedQuota?, allowedPercent? }
  */
-router.put('/quotas/:offerCode', requireSupervisor, async (req, res) => {
+router.put('/quotas/:offerCode', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const { offerCode } = req.params;
     if (!isValidOfferCode(offerCode)) return Errors.notFound(res, `Offre "${offerCode}"`);
@@ -578,7 +598,7 @@ const uploadPlanning = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 }).single('file');
 
-function parseHmSetting(raw) {
+function parseHmSetting(raw: unknown) {
   const m = String(raw || '').trim().match(/^(\d{1,2}):(\d{2})$/);
   if (!m) return null;
   const h = Number(m[1]);
@@ -591,12 +611,12 @@ function parseHmSetting(raw) {
  * GET /api/supervisor/planning/mapping
  * Union des libellés déjà mappés et de ceux vus dans planning_activities.
  */
-router.get('/planning/mapping', requireSupervisor, async (req, res) => {
+router.get('/planning/mapping', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const offers = await db.queryAll(
       'SELECT id, code FROM offers WHERE purge_requested_at IS NULL'
     );
-    const codeById = new Map(offers.map((o) => [o.id, o.code]));
+    const codeById = new Map(offers.map((o: { id: unknown; code: string }) => [o.id, o.code]));
 
     const mapped = await db.queryAll(
       'SELECT label, offer_id FROM wfm_activity_mappings ORDER BY label'
@@ -606,7 +626,7 @@ router.get('/planning/mapping', requireSupervisor, async (req, res) => {
     );
 
     const byLabel = new Map();
-    const remember = (rawLabel, offerId, fromMapping) => {
+    const remember = (rawLabel: unknown, offerId: unknown, fromMapping: boolean) => {
       const label = canonicalWfmLabel(rawLabel);
       if (!label) return;
       const existing = byLabel.get(label);
@@ -643,8 +663,8 @@ router.get('/planning/mapping', requireSupervisor, async (req, res) => {
   }
 });
 
-function handlePlanningUpload(req, res, next) {
-  uploadPlanning(req, res, (err) => {
+function handlePlanningUpload(req: Request, res: Response, next: NextFunction) {
+  uploadPlanning(req, res, (err: { code?: string } | undefined) => {
     if (!err) return next();
     if (err.code === 'LIMIT_FILE_SIZE') {
       return apiError(res, 400, 'FILE_TOO_LARGE', 'Fichier trop volumineux (max 5 Mo)');
@@ -657,11 +677,12 @@ function handlePlanningUpload(req, res, next) {
  * POST /api/supervisor/planning/import/preview
  * Parse le CSV sans écrire. multipart field: file
  */
-router.post('/planning/import/preview', requireSupervisor, handlePlanningUpload, async (req, res) => {
+router.post('/planning/import/preview', requireSupervisor, handlePlanningUpload, async (req: Request, res: Response) => {
   try {
-    if (!req.file || !req.file.buffer) return Errors.missingField(res, 'file');
-    const payload = await db.withTransaction(async (client) => {
-      const analysed = await analyseGenesysBuffer(req.file.buffer, client);
+    const uploaded = (req as UploadReq).file;
+    if (!uploaded || !uploaded.buffer) return Errors.missingField(res, 'file');
+    const payload = await db.withTransaction(async (client: TxClient) => {
+      const analysed = await analyseGenesysBuffer(uploaded.buffer, client);
       const offerRes = await client.query(
         `SELECT o.id, o.code, o.label, o.default_quota, o.color, o.is_active,
                 qr.allowed_percent, qr.fixed_quota
@@ -670,7 +691,7 @@ router.post('/planning/import/preview', requireSupervisor, handlePlanningUpload,
          WHERE o.purge_requested_at IS NULL
          ORDER BY o.code`
       );
-      const offers = offerRes.rows.map((row) => ({
+      const offers = offerRes.rows.map((row: any) => ({
         offerId: row.id,
         offerCode: row.code,
         label: row.label,
@@ -687,8 +708,8 @@ router.post('/planning/import/preview', requireSupervisor, handlePlanningUpload,
     });
     res.json(payload);
   } catch (err) {
-    if (err instanceof GenesysImportError || err.code === 'FORMAT') {
-      return apiError(res, 400, err.code || 'FORMAT', err.message);
+    if (err instanceof GenesysImportError || pgCode(err) === 'FORMAT') {
+      return apiError(res, 400, pgCode(err) || 'FORMAT', err instanceof Error ? err.message : 'FORMAT');
     }
     Errors.internal(res, err);
   }
@@ -698,16 +719,17 @@ router.post('/planning/import/preview', requireSupervisor, handlePlanningUpload,
  * POST /api/supervisor/planning/import
  * multipart field: file
  */
-router.post('/planning/import', requireSupervisor, handlePlanningUpload, async (req, res) => {
+router.post('/planning/import', requireSupervisor, handlePlanningUpload, async (req: Request, res: Response) => {
   try {
-    if (!req.file || !req.file.buffer) return Errors.missingField(res, 'file');
-    const result = await importGenesysBuffer(req.file.buffer);
+    const uploaded = (req as UploadReq).file;
+    if (!uploaded || !uploaded.buffer) return Errors.missingField(res, 'file');
+    const result = await importGenesysBuffer(uploaded.buffer);
     const io = req.app.get('io');
     if (io) await emitQuotasUpdate(io);
     res.json(result);
   } catch (err) {
-    if (err instanceof GenesysImportError || err.code === 'FORMAT') {
-      return apiError(res, 400, err.code || 'FORMAT', err.message);
+    if (err instanceof GenesysImportError || pgCode(err) === 'FORMAT') {
+      return apiError(res, 400, pgCode(err) || 'FORMAT', err instanceof Error ? err.message : 'FORMAT');
     }
     Errors.internal(res, err);
   }
@@ -717,7 +739,7 @@ router.post('/planning/import', requireSupervisor, handlePlanningUpload, async (
  * PUT /api/supervisor/planning/mapping
  * Body: { mappings: [{ label, offerCode|null }] }
  */
-router.put('/planning/mapping', requireSupervisor, async (req, res) => {
+router.put('/planning/mapping', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const mappings = req.body && req.body.mappings;
     if (!Array.isArray(mappings)) {
@@ -727,7 +749,7 @@ router.put('/planning/mapping', requireSupervisor, async (req, res) => {
     const offers = await db.queryAll(
       'SELECT id, code FROM offers WHERE purge_requested_at IS NULL'
     );
-    const offerByCode = new Map(offers.map((o) => [o.code, o.id]));
+    const offerByCode = new Map(offers.map((o: { id: unknown; code: string }) => [o.code, o.id]));
 
     const byCanon = new Map();
     for (const item of mappings) {
@@ -746,7 +768,7 @@ router.put('/planning/mapping', requireSupervisor, async (req, res) => {
     }
     const normalized = [...byCanon.values()];
 
-    await db.withTransaction(async (client) => {
+    await db.withTransaction(async (client: TxClient) => {
       for (const row of normalized) {
         await client.query(
           `DELETE FROM wfm_activity_mappings
@@ -775,7 +797,7 @@ router.put('/planning/mapping', requireSupervisor, async (req, res) => {
       collapsed.set(label, {
         label,
         offerId: r.offer_id,
-        offerCode: offers.find((o) => o.id === r.offer_id)?.code ?? null,
+        offerCode: offers.find((o: { id: unknown; code: string }) => o.id === r.offer_id)?.code ?? null,
       });
     }
     res.json({ mappings: [...collapsed.values()] });
@@ -787,7 +809,7 @@ router.put('/planning/mapping', requireSupervisor, async (req, res) => {
 /**
  * GET /api/supervisor/planning/slots?day=YYYY-MM-DD
  */
-router.get('/planning/slots', requireSupervisor, async (req, res) => {
+router.get('/planning/slots', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const day = typeof req.query.day === 'string' ? req.query.day.trim() : '';
     if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
@@ -847,14 +869,14 @@ router.get('/planning/slots', requireSupervisor, async (req, res) => {
  * Clôture immédiatement la pause active d'un agent avec le motif 'supervisor_forced'.
  * Body: { agent_matricule }
  */
-router.post('/pause/force-stop', requireSupervisor, async (req, res) => {
+router.post('/pause/force-stop', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const agentMatricule = typeof req.body.agent_matricule === 'string' ? req.body.agent_matricule.trim() : '';
     if (!agentMatricule) return Errors.missingField(res, 'agent_matricule');
 
     const now = nowIso();
 
-    const result = await db.withTransaction(async (client) => {
+    const result = await db.withTransaction(async (client: TxClient) => {
       const pauseResult = await client.query(
         'SELECT p.*, o.code AS offer_code, o.id AS offer_id_val ' +
         'FROM pauses p JOIN offers o ON o.id = p.offer_id ' +
@@ -865,20 +887,21 @@ router.post('/pause/force-stop', requireSupervisor, async (req, res) => {
 
       if (!pause) return { err: 'NOT_FOUND' };
 
-      const durationSeconds = Math.round((new Date(now) - new Date(pause.start_time)) / 1000);
+      const durationSeconds = Math.round((Date.parse(now) - Date.parse(String(pause.start_time))) / 1000);
 
       await client.query(
         "UPDATE pauses SET status = 'ended', end_time = $1, end_reason = 'supervisor_forced', duration_seconds = $2, updated_at = $3 WHERE id = $4",
         [now, durationSeconds, now, pause.id]
       );
 
-      const pauseBudget = await loadAgentPauseBudget(agentMatricule, client);
+      const pauseBudget: PublicBudget = await loadAgentPauseBudget(agentMatricule, client);
       return { pause, durationSeconds, endTime: now, pauseBudget };
     });
 
     if (result.err === 'NOT_FOUND') return Errors.notFound(res, 'Pause active pour cet agent');
 
-    const io = req.app.get('io');
+    const pauseBudget: PublicBudget = result.pauseBudget;
+    const io = req.app.get('io') as any;
     if (io) {
       const agent     = await db.queryOne('SELECT nom, prenom FROM agents WHERE matricule = $1', [agentMatricule]);
       const offerCode = result.pause.offer_code;
@@ -893,7 +916,7 @@ router.post('/pause/force-stop', requireSupervisor, async (req, res) => {
         endTime:         result.endTime,
         durationSeconds: result.durationSeconds,
         endReason:       'supervisor_forced',
-        pauseBudget:     result.pauseBudget,
+        pauseBudget,
       };
       broadcastPauseEvent(io, 'pause:stopped', payload, await loadAnonymizeAgentNames());
       await emitOfferUpdate(io, offerCode, result.pause.offer_id_val);
@@ -904,7 +927,7 @@ router.post('/pause/force-stop', requireSupervisor, async (req, res) => {
     res.json({
       endTime: result.endTime,
       durationSeconds: result.durationSeconds,
-      pauseBudget: result.pauseBudget,
+      pauseBudget,
     });
   } catch (err) {
     Errors.internal(res, err);
@@ -916,7 +939,7 @@ router.post('/pause/force-stop', requireSupervisor, async (req, res) => {
  * Body: { agent_matricule }
  * Libère manuellement une session socket active pour un agent.
  */
-router.post('/sessions/release', requireSupervisor, (req, res) => {
+router.post('/sessions/release', requireSupervisor, (req: Request, res: Response) => {
   try {
     const agentMatricule = typeof req.body.agent_matricule === 'string' ? req.body.agent_matricule.trim() : '';
     if (!agentMatricule) return Errors.missingField(res, 'agent_matricule');
@@ -943,11 +966,13 @@ router.post('/sessions/release', requireSupervisor, (req, res) => {
 /**
  * GET /api/supervisor/history?offerCode=&from=&to=&page=&limit=
  */
-router.get('/history', requireSupervisor, async (req, res) => {
+router.get('/history', requireSupervisor, async (req: Request, res: Response) => {
   try {
-    const { offerCode, from, to } = req.query;
-    const page  = Math.max(1, parseInt(req.query.page,  10) || 1);
-    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const offerCode = queryString(req.query.offerCode);
+    const from = queryString(req.query.from);
+    const to = queryString(req.query.to);
+    const page  = Math.max(1, parseInt(queryString(req.query.page),  10) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(queryString(req.query.limit), 10) || 50));
     const offset = (page - 1) * limit;
 
     if (offerCode && !isValidOfferCode(offerCode)) {
@@ -997,16 +1022,16 @@ router.get('/history', requireSupervisor, async (req, res) => {
  * Body: { excluded_from_budget: boolean }
  * Pause terminée uniquement. Recalcule le pot de l’agent.
  */
-router.patch('/pauses/:id', requireSupervisor, async (req, res) => {
+router.patch('/pauses/:id', requireSupervisor, async (req: Request, res: Response) => {
   try {
     if (!req.body || !Object.prototype.hasOwnProperty.call(req.body, 'excluded_from_budget')) {
       return Errors.missingField(res, 'excluded_from_budget');
     }
-    const excluded = req.body.excluded_from_budget;
+    const excluded = (req.body as { excluded_from_budget?: unknown }).excluded_from_budget;
     if (typeof excluded !== 'boolean') {
       return Errors.invalidType(res, 'excluded_from_budget', 'boolean');
     }
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(queryString(req.params.id), 10);
     if (!Number.isInteger(id) || id < 1) {
       return Errors.invalidType(res, 'id', 'entier positif');
     }
@@ -1028,8 +1053,8 @@ router.patch('/pauses/:id', requireSupervisor, async (req, res) => {
       [excluded, id]
     );
 
-    const pauseBudget = await loadAgentPauseBudget(updated.agent_matricule);
-    const io = req.app.get('io');
+    const pauseBudget: PublicBudget = await loadAgentPauseBudget(updated.agent_matricule);
+    const io = req.app.get('io') as any;
     if (io) {
       io.to(`agent:${updated.agent_matricule}`).emit('pause:budget-updated', { pauseBudget });
       await emitDirectoryCredits(io);
@@ -1048,10 +1073,10 @@ router.patch('/pauses/:id', requireSupervisor, async (req, res) => {
  * Ne renvoie jamais github_token ni supervisor_pin en clair ;
  * indicateurs *_configured uniquement.
  */
-router.get('/settings', requireSupervisor, async (req, res) => {
+router.get('/settings', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const rows = await db.queryAll('SELECT key, value FROM app_settings');
-    const settings = Object.fromEntries(rows.map(r => [r.key, r.value]));
+    const settings = Object.fromEntries(rows.map((r: { key: string; value: string }) => [r.key, r.value]));
     const rawToken = settings.github_token;
     delete settings.github_token;
     if (typeof rawToken === 'string' && rawToken.trim() !== '') {
@@ -1074,7 +1099,7 @@ router.get('/settings', requireSupervisor, async (req, res) => {
  * github_token : clé absente → inchangé ; "" → effacement ; chaîne non vide → remplacement.
  * supervisor_pin : clé absente → inchangé ; si présent → doit être /^\d{4,6}$/ (pas vide).
  */
-router.put('/settings', requireSupervisor, async (req, res) => {
+router.put('/settings', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const body = req.body || {};
 
@@ -1128,7 +1153,7 @@ router.put('/settings', requireSupervisor, async (req, res) => {
  * Active ou désactive le mode urgence.
  * Diffuse system:maintenance-mode à tous les clients via Socket.io.
  */
-router.put('/settings/maintenance-mode', requireSupervisor, async (req, res) => {
+router.put('/settings/maintenance-mode', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const { active } = req.body;
     if (active === undefined) return Errors.missingField(res, 'active');
@@ -1150,7 +1175,7 @@ router.put('/settings/maintenance-mode', requireSupervisor, async (req, res) => 
  * GET /api/supervisor/settings/maintenance-mode
  * Retourne l'état courant du mode urgence.
  */
-router.get('/settings/maintenance-mode', requireSupervisor, async (req, res) => {
+router.get('/settings/maintenance-mode', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const row = await db.queryOne("SELECT value FROM app_settings WHERE key = 'maintenance_mode'");
     res.json({ maintenanceMode: row ? row.value === '1' : false });
@@ -1163,7 +1188,7 @@ router.get('/settings/maintenance-mode', requireSupervisor, async (req, res) => 
  * PUT /api/supervisor/settings/history-retention-days
  * Body: { days }
  */
-router.put('/settings/history-retention-days', requireSupervisor, async (req, res) => {
+router.put('/settings/history-retention-days', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const { days } = req.body;
     if (days === undefined)       return Errors.missingField(res, 'days');
@@ -1184,7 +1209,7 @@ router.put('/settings/history-retention-days', requireSupervisor, async (req, re
  * Modifie la durée maximale d'une pause. Prise en effet immédiate (scheduler dynamique).
  * Diffuse system:settings-updated { maxPauseMinutes } via Socket.io.
  */
-router.put('/settings/max-pause-minutes', requireSupervisor, async (req, res) => {
+router.put('/settings/max-pause-minutes', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const { minutes } = req.body;
     if (minutes === undefined) return Errors.missingField(res, 'minutes');
@@ -1210,7 +1235,7 @@ router.put('/settings/max-pause-minutes', requireSupervisor, async (req, res) =>
  * PUT /api/supervisor/settings/max-pauses-per-agent
  * Body: { maxPauses: number | null } — null ou vide = illimité.
  */
-router.put('/settings/max-pauses-per-agent', requireSupervisor, async (req, res) => {
+router.put('/settings/max-pauses-per-agent', requireSupervisor, async (req: Request, res: Response) => {
   try {
     if (!req.body || !Object.prototype.hasOwnProperty.call(req.body, 'maxPauses')) {
       return Errors.missingField(res, 'maxPauses');
@@ -1244,7 +1269,7 @@ router.put('/settings/max-pauses-per-agent', requireSupervisor, async (req, res)
  * PUT /api/supervisor/settings/anonymize-agent-names
  * Body: { enabled: true|false }
  */
-router.put('/settings/anonymize-agent-names', requireSupervisor, async (req, res) => {
+router.put('/settings/anonymize-agent-names', requireSupervisor, async (req: Request, res: Response) => {
   try {
     if (!req.body || !Object.prototype.hasOwnProperty.call(req.body, 'enabled')) {
       return Errors.missingField(res, 'enabled');
@@ -1270,7 +1295,7 @@ router.put('/settings/anonymize-agent-names', requireSupervisor, async (req, res
  * Body: { windows: [{ start: "HH:MM", end: "HH:MM" }] }
  * Tableau vide = pauses autorisées 24h.
  */
-router.put('/settings/pause-windows', requireSupervisor, async (req, res) => {
+router.put('/settings/pause-windows', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const windows = req.body && req.body.windows;
     if (!Array.isArray(windows)) {
@@ -1306,9 +1331,9 @@ router.put('/settings/pause-windows', requireSupervisor, async (req, res) => {
   }
 });
 
-function parseImportWeekdays(raw) {
+function parseImportWeekdays(raw: unknown) {
   if (!Array.isArray(raw) || raw.length === 0) return null;
-  const set = new Set();
+  const set = new Set<number>();
   for (const n of raw) {
     const v = Number(n);
     if (!Number.isInteger(v) || v < 1 || v > 7) return null;
@@ -1323,7 +1348,7 @@ function parseImportWeekdays(raw) {
  * Body: { weekdays: [1-7], skipFrenchHolidays: boolean }
  * UPSERT uniquement des deux clés ; n’écrase pas pause_windows ni le reste.
  */
-router.put('/settings/planning-import-days', requireSupervisor, async (req, res) => {
+router.put('/settings/planning-import-days', requireSupervisor, async (req: Request, res: Response) => {
   try {
     const body = req.body || {};
     const weekdays = parseImportWeekdays(body.weekdays);

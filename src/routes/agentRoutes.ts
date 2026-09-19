@@ -1,15 +1,18 @@
+'use strict';
+
+import type { Request, Response } from 'express';
+import type { PublicBudget } from '../lib/pauseBudget';
+
 const express = require('express');
-const router  = express.Router();
-const db      = require('../db');
+const router = express.Router();
+const db = require('../db');
 const { Errors, isValidOfferCode } = require('../middlewares/validate');
 const { pauseLimitMessage } = require('../lib/pauseBudget');
 const {
   qOne,
-  getParisClock,
   loadPauseWindowStatus,
   loadMaxPauseMinutes,
   loadAgentPauseBudget,
-  loadDirectoryPauseCredits,
   emitDirectoryCredits,
 } = require('../lib/pauseCredits');
 const {
@@ -17,99 +20,34 @@ const {
   redactSnapshot,
   broadcastPauseEvent,
 } = require('../lib/pauseIdentity');
+const {
+  effectiveQuota,
+  countActivePauses,
+  visibleOffersForAgent,
+  buildQuotasSnapshot,
+  emitOfferUpdate,
+  emitQuotasUpdate,
+} = require('../lib/offerQuota');
 
-// ---------- helpers internes ----------
+type StartBody = { agent_matricule?: unknown; offerCode?: unknown };
+type StopBody = { agent_matricule?: unknown };
 
-function normalize(name) {
+function normalize(name: string): string {
   return name.trim().toLowerCase().normalize('NFD').replace(/\p{Mn}/gu, '');
 }
 
-function nowIso() {
+function nowIso(): string {
   return new Date().toISOString();
 }
 
-/** floor(headcount × %) ; minimum 1 dès qu’il y a au moins une tête planifiée. */
-function allowedFromHeadcount(headcount, percent) {
-  const n = Number(headcount);
-  if (!Number.isFinite(n) || n <= 0) return 0;
-  const p = Number(percent);
-  if (!Number.isFinite(p) || p < 0) return 0;
-  return Math.max(1, Math.floor((n * p) / 100));
-}
-
-/**
- * Quota effectif:
- *   1. hors fenêtres de pause (si configurées) → 0
- *   2. fixed_quota (override) si NOT NULL
- *   3. slot planning du jour : max(1, floor(headcount × %)) si headcount > 0 ; 0 si headcount = 0 ; default_quota si % NULL
- *   4. offers.default_quota
- */
-async function effectiveQuota(offerId, client) {
-  const clock = getParisClock();
-  const windowStatus = await loadPauseWindowStatus(client);
-  if (!windowStatus.open) return 0;
-
-  const rule = await qOne(
-    'SELECT qr.fixed_quota, qr.allowed_percent, o.default_quota ' +
-    'FROM offers o ' +
-    'LEFT JOIN quota_rules qr ON qr.offer_id = o.id ' +
-    'WHERE o.id = $1',
-    [offerId],
-    client
-  );
-
-  if (!rule) return 0;
-  if (rule.fixed_quota !== null && rule.fixed_quota !== undefined) {
-    return Number(rule.fixed_quota);
-  }
-
-  const slot = await qOne(
-    'SELECT headcount FROM planning_slots ' +
-    'WHERE offer_id = $1 AND day = $2::date AND slot_minutes = $3',
-    [offerId, clock.day, clock.slotMinutes],
-    client
-  );
-
-  if (slot) {
-    if (rule.allowed_percent === null || rule.allowed_percent === undefined) {
-      return Number(rule.default_quota);
-    }
-    return allowedFromHeadcount(slot.headcount, rule.allowed_percent);
-  }
-
-  return Number(rule.default_quota);
-}
-
-async function countActivePauses(offerId, client) {
-  const row = await qOne(
-    "SELECT COUNT(*) AS cnt FROM pauses WHERE offer_id = $1 AND status = 'in_progress'",
-    [offerId],
-    client
-  );
-  return row ? Number(row.cnt) : 0;
-}
-
-async function offerByCode(code) {
+async function offerByCode(code: string) {
   return db.queryOne('SELECT * FROM offers WHERE code = $1', [code]);
 }
 
-function sanitizeText(v, max = 100) {
+function sanitizeText(v: unknown, max = 100): string {
   return typeof v === 'string' ? v.trim().slice(0, max) : '';
 }
 
-async function visibleOffersForAgent() {
-  return db.queryAll(
-    'SELECT o.* FROM offers o ' +
-    'WHERE o.purge_requested_at IS NULL ' +
-    'AND (o.is_active = true ' +
-    "OR EXISTS (SELECT 1 FROM pauses p WHERE p.offer_id = o.id AND (p.status = 'in_progress' OR p.end_time IS NULL))) " +
-    'ORDER BY o.code'
-  );
-}
-
-/**
- * Construit le snapshot complet des pauses en cours, groupé par offre.
- */
 async function buildSnapshot() {
   const offers = await visibleOffersForAgent();
   const snapshot = [];
@@ -131,65 +69,7 @@ async function buildSnapshot() {
   return snapshot;
 }
 
-/**
- * Émet les événements Socket.io liés à une offre après mutation.
- * Cible la room de l'offre ET le broadcast global (dashboard partagé).
- */
-async function emitOfferUpdate(io, offerCode, offerId) {
-  const quota  = await effectiveQuota(offerId);
-  const active = await countActivePauses(offerId);
-  const windowStatus = await loadPauseWindowStatus();
-  let reason = null;
-  if (!windowStatus.open) reason = 'outside_window';
-  else if (active >= quota) reason = 'quota_reached';
-  const blockPayload = {
-    offerCode,
-    canStartPause:    active < quota,
-    effectiveQuota:   quota,
-    currentPaused:    active,
-    blockedForNewStarts: active >= quota,
-    reason,
-  };
-  io.to(`offer:${offerCode}`).emit('offer:block-status', blockPayload);
-  io.emit('offer:block-status', blockPayload);
-}
-
-function normalizeQuotaValue(value) {
-  if (typeof value !== 'number') return null;
-  if (!Number.isFinite(value)) return null;
-  if (value < 0) return null;
-  return value;
-}
-
-async function buildQuotasSnapshot() {
-  const offers = await visibleOffersForAgent();
-  const quotas = [];
-  for (const offer of offers) {
-    const computedQuota = await effectiveQuota(offer.id);
-    const quotaMax = normalizeQuotaValue(computedQuota);
-    quotas.push({
-      offre_id: offer.id,
-      code: offer.code,
-      nom: offer.label,
-      color: offer.color ?? null,
-      is_active: offer.is_active,
-      quota_max: quotaMax,
-      pauses_en_cours: await countActivePauses(offer.id),
-    });
-  }
-  return quotas;
-}
-
-async function emitQuotasUpdate(io) {
-  io.emit('quotas:update', await buildQuotasSnapshot());
-}
-
-// ---------- routes ----------
-
-/**
- * GET /api/agent/bootstrap?agent_matricule=...
- */
-router.get('/bootstrap', async (req, res) => {
+router.get('/bootstrap', async (req: Request, res: Response) => {
   try {
     const agentMatricule = sanitizeText(req.query.agent_matricule, 32);
     const agent = agentMatricule
@@ -216,6 +96,9 @@ router.get('/bootstrap', async (req, res) => {
     const maxPauseMinutes = await loadMaxPauseMinutes();
     const anonymizeAgentNames = await loadAnonymizeAgentNames();
     const snapshot = await buildSnapshot();
+    const pauseBudget: PublicBudget | null = agentMatricule
+      ? await loadAgentPauseBudget(agentMatricule)
+      : null;
 
     res.json({
       agent: agent || null,
@@ -223,7 +106,7 @@ router.get('/bootstrap', async (req, res) => {
       snapshot: anonymizeAgentNames ? redactSnapshot(snapshot, agentMatricule || null) : snapshot,
       quotas: await buildQuotasSnapshot(),
       pauseWindows: await loadPauseWindowStatus(),
-      pauseBudget: agentMatricule ? await loadAgentPauseBudget(agentMatricule) : null,
+      pauseBudget,
       maintenanceMode,
       maxPauseMinutes,
       anonymizeAgentNames,
@@ -233,11 +116,7 @@ router.get('/bootstrap', async (req, res) => {
   }
 });
 
-/**
- * POST /api/agent/identify
- * Body: { agent_matricule }
- */
-router.post('/identify', async (req, res) => {
+router.post('/identify', async (req: Request, res: Response) => {
   try {
     const agentMatricule = sanitizeText(req.body.agent_matricule, 32);
     if (!agentMatricule) return Errors.missingField(res, 'agent_matricule');
@@ -256,12 +135,9 @@ router.post('/identify', async (req, res) => {
   }
 });
 
-/**
- * GET /api/agent/suggestions?query=...
- */
-router.get('/suggestions', async (req, res) => {
+router.get('/suggestions', async (req: Request, res: Response) => {
   try {
-    const { query } = req.query;
+    const query = req.query.query;
     const trimmedQuery = sanitizeText(query);
     if (!trimmedQuery || trimmedQuery.length < 2) return res.json({ suggestions: [] });
 
@@ -279,14 +155,11 @@ router.get('/suggestions', async (req, res) => {
   }
 });
 
-/**
- * POST /api/agent/pause/start
- * Body: { agent_matricule, offerCode }
- */
-router.post('/pause/start', async (req, res) => {
+router.post('/pause/start', async (req: Request, res: Response) => {
   try {
-    const agentMatricule = sanitizeText(req.body.agent_matricule, 32);
-    const offerCode = sanitizeText(req.body.offerCode, 32);
+    const body = req.body as StartBody;
+    const agentMatricule = sanitizeText(body.agent_matricule, 32);
+    const offerCode = sanitizeText(body.offerCode, 32);
 
     const missing = [];
     if (!agentMatricule) missing.push('agent_matricule');
@@ -315,7 +188,7 @@ router.post('/pause/start', async (req, res) => {
 
     const now = nowIso();
 
-    const result = await db.withTransaction(async (client) => {
+    const result = await db.withTransaction(async (client: { query: Function }) => {
       await client.query(
         'SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))',
         ['pause-start', agentMatricule]
@@ -323,7 +196,7 @@ router.post('/pause/start', async (req, res) => {
 
       const windowStatusTx = await loadPauseWindowStatus(client);
       if (!windowStatusTx.open) {
-        return { err: 'OUTSIDE_WINDOW', nextOpen: windowStatusTx.nextOpen };
+        return { err: 'OUTSIDE_WINDOW' as const, nextOpen: windowStatusTx.nextOpen };
       }
 
       await client.query('SELECT id FROM offers WHERE id = $1 FOR UPDATE', [offer.id]);
@@ -333,16 +206,16 @@ router.post('/pause/start', async (req, res) => {
         [agentMatricule],
         client
       );
-      if (existingPause) return { err: 'CONFLICT', message: 'Une pause est déjà en cours pour cet agent' };
+      if (existingPause) return { err: 'CONFLICT' as const, message: 'Une pause est déjà en cours pour cet agent' };
 
-      const budget = await loadAgentPauseBudget(agentMatricule, client);
+      const budget: PublicBudget = await loadAgentPauseBudget(agentMatricule, client);
       if (!budget.canStart) {
-        return { err: 'PAUSE_LIMIT', budget };
+        return { err: 'PAUSE_LIMIT' as const, budget };
       }
 
-      const quota  = await effectiveQuota(offer.id, client);
+      const quota = await effectiveQuota(offer.id, client);
       const active = await countActivePauses(offer.id, client);
-      if (active >= quota) return { err: 'QUOTA_REACHED', quota, active };
+      if (active >= quota) return { err: 'QUOTA_REACHED' as const, quota, active };
 
       const inserted = await qOne(
         "INSERT INTO pauses (agent_matricule, offer_id, start_time, status, created_at, updated_at, allowed_seconds) " +
@@ -351,7 +224,7 @@ router.post('/pause/start', async (req, res) => {
         client
       );
 
-      const pauseBudget = await loadAgentPauseBudget(agentMatricule, client);
+      const pauseBudget: PublicBudget = await loadAgentPauseBudget(agentMatricule, client);
       return {
         pauseId: inserted.id,
         startTime: now,
@@ -361,22 +234,23 @@ router.post('/pause/start', async (req, res) => {
     });
 
     if (result.err === 'OUTSIDE_WINDOW') return Errors.outsidePauseWindow(res, result.nextOpen);
-    if (result.err === 'CONFLICT')     return Errors.conflict(res, result.message);
+    if (result.err === 'CONFLICT') return Errors.conflict(res, result.message);
     if (result.err === 'PAUSE_LIMIT') {
       return Errors.pauseLimitReached(res, pauseLimitMessage(result.budget.reason), result.budget);
     }
     if (result.err === 'QUOTA_REACHED') return Errors.quotaReached(res, result.quota, result.active);
 
-    const io = req.app.get('io');
+    const pauseBudget: PublicBudget = result.pauseBudget;
+    const io = req.app.get('io') as any;
     if (io) {
       const startedPayload = {
-        pauseId:   result.pauseId,
+        pauseId: result.pauseId,
         agent_matricule: agentMatricule,
         agentName: `${agent.prenom} ${agent.nom}`,
         offerCode,
         startTime: result.startTime,
         allowedSeconds: result.allowedSeconds,
-        pauseBudget: result.pauseBudget,
+        pauseBudget,
       };
       broadcastPauseEvent(io, 'pause:started', startedPayload, await loadAnonymizeAgentNames());
 
@@ -389,26 +263,23 @@ router.post('/pause/start', async (req, res) => {
       pauseId: result.pauseId,
       startTime: result.startTime,
       allowedSeconds: result.allowedSeconds,
-      pauseBudget: result.pauseBudget,
+      pauseBudget,
     });
   } catch (err) {
     Errors.internal(res, err);
   }
 });
 
-/**
- * POST /api/agent/pause/stop
- * Body: { agent_matricule }
- */
-router.post('/pause/stop', async (req, res) => {
+router.post('/pause/stop', async (req: Request, res: Response) => {
   try {
-    const agentMatricule = sanitizeText(req.body.agent_matricule, 32);
+    const body = req.body as StopBody;
+    const agentMatricule = sanitizeText(body.agent_matricule, 32);
 
     if (!agentMatricule) return Errors.missingField(res, 'agent_matricule');
 
     const now = nowIso();
 
-    const result = await db.withTransaction(async (client) => {
+    const result = await db.withTransaction(async (client: { query: Function }) => {
       const pause = await qOne(
         'SELECT p.*, o.code AS offer_code, o.id AS offer_id_val ' +
         'FROM pauses p JOIN offers o ON o.id = p.offer_id ' +
@@ -417,35 +288,36 @@ router.post('/pause/stop', async (req, res) => {
         client
       );
 
-      if (!pause) return { err: 'NOT_FOUND' };
+      if (!pause) return { err: 'NOT_FOUND' as const };
 
-      const durationSeconds = Math.round((new Date(now) - new Date(pause.start_time)) / 1000);
+      const durationSeconds = Math.round((Date.parse(now) - Date.parse(pause.start_time)) / 1000);
 
       await client.query(
         "UPDATE pauses SET status = 'ended', end_time = $1, end_reason = 'manual', duration_seconds = $2, updated_at = $3 WHERE id = $4",
         [now, durationSeconds, now, pause.id]
       );
 
-      const pauseBudget = await loadAgentPauseBudget(agentMatricule, client);
+      const pauseBudget: PublicBudget = await loadAgentPauseBudget(agentMatricule, client);
       return { pause, durationSeconds, endTime: now, pauseBudget };
     });
 
     if (result.err === 'NOT_FOUND') return Errors.notFound(res, 'Pause active pour cet agent');
 
-    const io = req.app.get('io');
+    const pauseBudget: PublicBudget = result.pauseBudget;
+    const io = req.app.get('io') as any;
     if (io) {
-      const agent  = await db.queryOne('SELECT nom, prenom FROM agents WHERE matricule = $1', [agentMatricule]);
+      const agent = await db.queryOne('SELECT nom, prenom FROM agents WHERE matricule = $1', [agentMatricule]);
       const offerCode = result.pause.offer_code;
 
       const stoppedPayload = {
-        pauseId:         result.pause.id,
+        pauseId: result.pause.id,
         agent_matricule: agentMatricule,
-        agentName:       agent ? `${agent.prenom} ${agent.nom}` : agentMatricule,
+        agentName: agent ? `${agent.prenom} ${agent.nom}` : agentMatricule,
         offerCode,
-        endTime:         result.endTime,
+        endTime: result.endTime,
         durationSeconds: result.durationSeconds,
-        endReason:       'manual',
-        pauseBudget:     result.pauseBudget,
+        endReason: 'manual',
+        pauseBudget,
       };
       broadcastPauseEvent(io, 'pause:stopped', stoppedPayload, await loadAnonymizeAgentNames());
 
@@ -457,7 +329,7 @@ router.post('/pause/stop', async (req, res) => {
     res.json({
       endTime: result.endTime,
       durationSeconds: result.durationSeconds,
-      pauseBudget: result.pauseBudget,
+      pauseBudget,
     });
   } catch (err) {
     Errors.internal(res, err);
@@ -466,16 +338,5 @@ router.post('/pause/stop', async (req, res) => {
 
 module.exports = {
   router,
-  effectiveQuota,
-  countActivePauses,
   buildSnapshot,
-  buildQuotasSnapshot,
-  emitOfferUpdate,
-  emitQuotasUpdate,
-  getParisClock,
-  allowedFromHeadcount,
-  loadPauseWindowStatus,
-  loadAgentPauseBudget,
-  loadDirectoryPauseCredits,
-  emitDirectoryCredits,
 };

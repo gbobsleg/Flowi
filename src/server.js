@@ -2,7 +2,7 @@ require('dotenv').config();
 const config = require('./config');
 const db = require('./db');
 const { createApp } = require('./createApp');
-const { emitOfferUpdate, emitQuotasUpdate } = require('./routes/agentRoutes');
+const { emitOfferUpdate, emitQuotasUpdate } = require('./lib/offerQuota');
 const { getParisClock, loadAgentPauseBudget, emitDirectoryCredits } = require('./lib/pauseCredits');
 const {
   loadAnonymizeAgentNames,
