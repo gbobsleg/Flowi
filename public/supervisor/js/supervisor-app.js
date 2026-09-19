@@ -592,34 +592,19 @@ function supervisorApp() {
     },
 
     formatPlanningDay(isoDay) {
-      const m = String(isoDay || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
-      if (!m) return isoDay || '—';
-      return `${m[3]}/${m[2]}/${m[1]}`;
+      return FlowiPlanningCopy.formatPlanningDay(isoDay);
     },
 
     planningPeriodLabel() {
-      const days = this.planningImportResult?.days || [];
-      if (!days.length) return '—';
-      if (days.length === 1) return this.formatPlanningDay(days[0]);
-      return `${this.formatPlanningDay(days[0])} → ${this.formatPlanningDay(days[days.length - 1])}`;
+      return FlowiPlanningCopy.planningPeriodLabel(this.planningImportResult?.days || []);
     },
 
     planningReplaceSummary() {
-      const days = this.planningImportResult?.days || [];
-      if (!days.length) return '';
-      if (days.length === 1) {
-        return `1 jour sera remplacé : ${this.formatPlanningDay(days[0])}.`;
-      }
-      return `${days.length} jours seront remplacés, du ${this.formatPlanningDay(days[0])} au ${this.formatPlanningDay(days[days.length - 1])}.`;
+      return FlowiPlanningCopy.planningReplaceSummary(this.planningImportResult?.days || []);
     },
 
     planningAppliedSummary() {
-      const days = this.planningImportResult?.days || [];
-      if (!days.length) return 'Planning remplacé.';
-      if (days.length === 1) {
-        return `Planning remplacé : 1 jour (${this.formatPlanningDay(days[0])}).`;
-      }
-      return `Planning remplacé : ${days.length} jours, du ${this.formatPlanningDay(days[0])} au ${this.formatPlanningDay(days[days.length - 1])}.`;
+      return FlowiPlanningCopy.planningAppliedSummary(this.planningImportResult?.days || []);
     },
 
     isCurrentPlanningSlot(minutes) {
