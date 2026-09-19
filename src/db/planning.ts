@@ -1,14 +1,12 @@
-/** Aligné sur canonicalWfmLabel() : ignore le texte entre parenthèses. */
-function canonicalWfmLabelSql(column) {
+'use strict';
+
+import type { PoolClient } from 'pg';
+
+function canonicalWfmLabelSql(column: string): string {
   return `TRIM(BOTH FROM REGEXP_REPLACE(REGEXP_REPLACE(${column}, '\\s*\\([^)]*\\)', ' ', 'g'), '\\s+', ' ', 'g'))`;
 }
 
-/**
- * Reconstruit planning_slots depuis planning_activities × wfm_activity_mappings.
- * @param {import('pg').PoolClient} client
- * @param {string[]|null} [dates=null] jours YYYY-MM-DD ; null = tous
- */
-async function rebuildPlanningSlots(client, dates = null) {
+async function rebuildPlanningSlots(client: PoolClient, dates: string[] | null = null): Promise<void> {
   if (!client || typeof client.query !== 'function') {
     throw new Error('rebuildPlanningSlots : client pg requis');
   }
