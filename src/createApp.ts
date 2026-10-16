@@ -101,7 +101,7 @@ function createApp() {
         const snapshot = await buildSnapshot();
         const anonymize = await loadAnonymizeAgentNames();
         socket.emit('state:snapshot', anonymize ? redactSnapshot(snapshot) : snapshot);
-        const mRow = await db.queryOne<{ value: string }>("SELECT value FROM app_settings WHERE key = 'maintenance_mode'");
+        const mRow = await db.queryOne<{ value: string }>("SELECT value FROM app_settings WHERE `key` = 'maintenance_mode'");
         socket.emit('system:maintenance-mode', { active: mRow ? mRow.value === '1' : false });
       } catch (err) {
         console.error('[socket] initialisation', err);

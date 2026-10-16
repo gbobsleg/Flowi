@@ -2,14 +2,14 @@
 
 CREATE TABLE planning_activities (
   day           DATE         NOT NULL,
-  wfm_label     VARCHAR(255) NOT NULL,
+  wfm_label     VARCHAR(255) COLLATE utf8mb4_bin NOT NULL,
   slot_minutes  SMALLINT     NOT NULL CHECK (slot_minutes >= 0 AND slot_minutes < 1440),
   headcount     INT          NOT NULL CHECK (headcount >= 0),
   PRIMARY KEY (day, wfm_label, slot_minutes)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE wfm_activity_mappings (
-  label    VARCHAR(255) NOT NULL PRIMARY KEY,
+  label    VARCHAR(255) COLLATE utf8mb4_bin NOT NULL PRIMARY KEY,
   offer_id INT,
   CONSTRAINT fk_wfm_mappings_offer FOREIGN KEY (offer_id) REFERENCES offers (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -1,9 +1,10 @@
 -- Schéma unifié MariaDB (InnoDB, utf8mb4). Aucune donnée applicative.
 -- Horodatages en DATETIME(3), toujours en UTC (time_zone fixé par la connexion).
+-- Identifiants en utf8mb4_bin : comparaison sensible à la casse, comme sous PostgreSQL.
 
 CREATE TABLE offers (
   id            INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  code          VARCHAR(255) NOT NULL UNIQUE,
+  code          VARCHAR(255) COLLATE utf8mb4_bin NOT NULL UNIQUE,
   label         TEXT         NOT NULL,
   default_quota INT          NOT NULL DEFAULT 2,
   color         TEXT,
@@ -12,7 +13,7 @@ CREATE TABLE offers (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE agents (
-  matricule VARCHAR(255) NOT NULL PRIMARY KEY,
+  matricule VARCHAR(255) COLLATE utf8mb4_bin NOT NULL PRIMARY KEY,
   nom       VARCHAR(255) NOT NULL,
   prenom    VARCHAR(255) NOT NULL,
   is_active BOOLEAN      NOT NULL DEFAULT true
@@ -22,7 +23,7 @@ CREATE INDEX idx_agents_nom_prenom_active ON agents (nom, prenom, is_active);
 
 CREATE TABLE pauses (
   id                 INT          NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  agent_matricule    VARCHAR(255) NOT NULL,
+  agent_matricule    VARCHAR(255) COLLATE utf8mb4_bin NOT NULL,
   offer_id           INT          NOT NULL,
   start_time         DATETIME(3)  NOT NULL,
   end_time           DATETIME(3),
@@ -53,6 +54,6 @@ CREATE TABLE quota_rules (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE app_settings (
-  `key`   VARCHAR(255) NOT NULL PRIMARY KEY,
+  `key`   VARCHAR(255) COLLATE utf8mb4_bin NOT NULL PRIMARY KEY,
   value   TEXT         NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

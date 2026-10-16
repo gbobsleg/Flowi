@@ -81,7 +81,7 @@ function semverGt(a: string, b: string): boolean {
 }
 
 async function readSetting(key: string): Promise<string> {
-  const row = await db.queryOne<{ value: string }>('SELECT value FROM app_settings WHERE key = $1', [key]);
+  const row = await db.queryOne<{ value: string }>('SELECT value FROM app_settings WHERE `key` = $1', [key]);
   if (!row || typeof row.value !== 'string') return '';
   return row.value.trim();
 }

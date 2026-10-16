@@ -71,48 +71,44 @@ async function run() {
     await db.withTransaction(async (client) => {
       for (const [k, v] of APP_SETTINGS) {
         await client.query(
-          'INSERT INTO app_settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING',
+          'INSERT IGNORE INTO app_settings (`key`, value) VALUES ($1, $2)',
           [k, v]
         );
       }
 
       for (const [code, label, dq] of OFFERS) {
         await client.query(
-          `INSERT INTO offers (code, label, default_quota, color, is_active, created_at)
-           VALUES ($1, $2, $3, NULL, true, $4)
-           ON CONFLICT (code) DO NOTHING`,
+          `INSERT IGNORE INTO offers (code, label, default_quota, color, is_active, created_at)
+           VALUES ($1, $2, $3, NULL, true, $4)`,
           [code, label, dq, now]
         );
       }
 
       for (const [code] of OFFERS) {
         await client.query(
-          `INSERT INTO quota_rules (offer_id, fixed_quota, present_count, allowed_percent, updated_at)
+          `INSERT IGNORE INTO quota_rules (offer_id, fixed_quota, present_count, allowed_percent, updated_at)
            SELECT o.id, NULL, NULL, 20, $1
            FROM offers o
-           WHERE o.code = $2
-           ON CONFLICT (offer_id) DO NOTHING`,
+           WHERE o.code = $2`,
           [now, code]
         );
       }
 
       await client.query(
         `UPDATE quota_rules qr
-         SET fixed_quota = NULL,
-             allowed_percent = 20,
-             updated_at = $1
-         FROM offers o
-         WHERE qr.offer_id = o.id
-           AND qr.fixed_quota IS NOT DISTINCT FROM o.default_quota
+         INNER JOIN offers o ON qr.offer_id = o.id
+         SET qr.fixed_quota = NULL,
+             qr.allowed_percent = 20,
+             qr.updated_at = $1
+         WHERE qr.fixed_quota <=> o.default_quota
            AND qr.allowed_percent IS NULL`,
         [now]
       );
 
       for (const [matricule, nom, prenom, isActive] of AGENTS) {
         await client.query(
-          `INSERT INTO agents (matricule, nom, prenom, is_active)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT (matricule) DO NOTHING`,
+          `INSERT IGNORE INTO agents (matricule, nom, prenom, is_active)
+           VALUES ($1, $2, $3, $4)`,
           [matricule, nom, prenom, isActive]
         );
       }
@@ -120,11 +116,7 @@ async function run() {
 
     console.log('Seed terminé : app_settings, offers, quota_rules, agents (idempotent).');
   } finally {
-    try {
-      await db.getPool().end();
-    } catch (_) {
-      // pool jamais ouvert (échec avant init)
-    }
+    await db.close();
   }
 }
 

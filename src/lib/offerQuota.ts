@@ -52,7 +52,7 @@ async function effectiveQuota(offerId: unknown, client?: QueryClient | null): Pr
 
   const slot = await qOne(
     'SELECT headcount FROM planning_slots ' +
-    'WHERE offer_id = $1 AND day = $2::date AND slot_minutes = $3',
+    'WHERE offer_id = $1 AND day = $2 AND slot_minutes = $3',
     [offerId, clock.day, clock.slotMinutes],
     client
   );

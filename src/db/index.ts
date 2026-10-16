@@ -12,12 +12,12 @@ interface Executor {
   query(sql: string, params?: any[]): Promise<[any, any]>;
 }
 
-const ISO_UTC_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/;
+const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})$/;
 
 let pool: any = null;
 
 function normalizeParam(v: any): any {
-  if (typeof v === 'string' && ISO_UTC_RE.test(v)) return new Date(v);
+  if (typeof v === 'string' && ISO_DATETIME_RE.test(v)) return new Date(v);
   return v;
 }
 
