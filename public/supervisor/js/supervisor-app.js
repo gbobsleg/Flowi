@@ -1304,7 +1304,7 @@ function supervisorApp() {
             rows.push({ name: 'Node.js', role: 'Exécution', version: data.runtime.node });
           }
           rows.push({
-            name: 'PostgreSQL',
+            name: 'MariaDB',
             role: 'Base de données',
             version: data.database || '—',
           });

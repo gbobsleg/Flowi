@@ -100,7 +100,7 @@ async function resolveOtaRepo(): Promise<{ owner: string; repo: string }> {
 
 /**
  * GET /api/supervisor/system/about
- * Versions installées (package.json + Node + PostgreSQL) pour l’onglet À propos.
+ * Versions installées (package.json + Node + MariaDB) pour l’onglet À propos.
  */
 router.get('/about', requireSupervisor, async (_req: Request, res: Response) => {
   try {
@@ -108,7 +108,7 @@ router.get('/about', requireSupervisor, async (_req: Request, res: Response) => 
 
     let database: string | null = null;
     try {
-      const row = await db.queryOne<{ version: string }>("SELECT current_setting('server_version') AS version");
+      const row = await db.queryOne<{ version: string }>('SELECT VERSION() AS version');
       database = row && row.version ? String(row.version) : null;
     } catch {
       database = null;

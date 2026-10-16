@@ -1,20 +1,4 @@
 services:
-  postgres:
-    image: postgres:16
-    container_name: flowi-postgres
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: flowi
-      POSTGRES_PASSWORD: flowi
-      POSTGRES_DB: flowi
-    volumes:
-      - flowi_pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U flowi -d flowi"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   flowi:
     build: .
     container_name: flowi
@@ -22,11 +6,3 @@ services:
     ports:
       - "127.0.0.1:3001:3000"
     env_file: .env
-    environment:
-      DATABASE_URL: postgres://flowi:flowi@postgres:5432/flowi
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-volumes:
-  flowi_pgdata:
