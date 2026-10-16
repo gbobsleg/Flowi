@@ -1,14 +1,14 @@
 'use strict';
 
-import type { PoolClient } from 'pg';
+import type { DbClient } from './types';
 
 function canonicalWfmLabelSql(column: string): string {
   return `TRIM(BOTH FROM REGEXP_REPLACE(REGEXP_REPLACE(${column}, '\\s*\\([^)]*\\)', ' ', 'g'), '\\s+', ' ', 'g'))`;
 }
 
-async function rebuildPlanningSlots(client: PoolClient, dates: string[] | null = null): Promise<void> {
+async function rebuildPlanningSlots(client: DbClient, dates: string[] | null = null): Promise<void> {
   if (!client || typeof client.query !== 'function') {
-    throw new Error('rebuildPlanningSlots : client pg requis');
+    throw new Error('rebuildPlanningSlots : client base de données requis');
   }
 
   const scoped = Array.isArray(dates) && dates.length > 0;

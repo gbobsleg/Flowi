@@ -1,13 +1,13 @@
 'use strict';
 
-import type { PoolClient } from 'pg';
+import type { DbClient } from '../db/types';
 
 const iconv = require('iconv-lite');
 const { parse } = require('csv-parse/sync');
 import db = require('../db');
 const { isFrenchHoliday } = require('../lib/frenchHolidays');
 
-type QueryClient = Pick<PoolClient, 'query'>;
+type QueryClient = DbClient;
 
 type GenesysCols = {
   date: number;

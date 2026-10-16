@@ -63,7 +63,7 @@ function installedVersion(pkgName: string): string | null {
 
 const DEP_ROLES: Record<string, string> = {
   express: 'Serveur web',
-  pg: 'Base de données',
+  mysql2: 'Base de données',
   'socket.io': 'Mises à jour en direct',
   'cookie-parser': 'Session de connexion',
   dotenv: 'Configuration',

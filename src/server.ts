@@ -1,6 +1,6 @@
 'use strict';
 
-import type { PoolClient } from 'pg';
+import type { DbClient } from './db/types';
 import type { PublicBudget } from './lib/pauseBudget';
 
 require('dotenv').config();
@@ -63,7 +63,7 @@ async function closeExpiredPauses(): Promise<void> {
   const now = nowIso();
   const currentMaxMinutes = Math.round(maxMs / 60000);
 
-  await db.withTransaction(async (client: PoolClient) => {
+  await db.withTransaction(async (client: DbClient) => {
     for (const p of expired) {
       await client.query(
         "UPDATE pauses SET status = 'ended', end_time = $1, end_reason = 'auto_15m', " +
@@ -119,7 +119,7 @@ async function purgeHistory(): Promise<void> {
   if (staleOffers.length === 0) return;
 
   let deleted = 0;
-  await db.withTransaction(async (client: PoolClient) => {
+  await db.withTransaction(async (client: DbClient) => {
     for (const offer of staleOffers) {
       const stillUsed = await client.query(
         'SELECT 1 FROM pauses WHERE offer_id = $1 LIMIT 1',
