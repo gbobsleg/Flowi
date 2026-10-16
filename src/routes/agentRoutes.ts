@@ -190,8 +190,8 @@ router.post('/pause/start', async (req: Request, res: Response) => {
 
     const result = await db.withTransaction(async (client: { query: Function }) => {
       await client.query(
-        'SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))',
-        ['pause-start', agentMatricule]
+        'SELECT matricule FROM agents WHERE matricule = $1 FOR UPDATE',
+        [agentMatricule]
       );
 
       const windowStatusTx = await loadPauseWindowStatus(client);

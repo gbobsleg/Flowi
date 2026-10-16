@@ -72,6 +72,7 @@ async function stopTestApp(ctx) {
       ctx.server.close((err) => (err ? reject(err) : resolve()));
     });
   }
+  await db.close();
 }
 
 async function requestJson(baseUrl, method, path, { body, token } = {}) {

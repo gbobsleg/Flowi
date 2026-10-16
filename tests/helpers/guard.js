@@ -1,6 +1,6 @@
 'use strict';
 
-const ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1', '::1', 'postgres']);
+const ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1', '::1', 'mariadb-test']);
 
 function parseDatabaseUrl(raw) {
   if (typeof raw !== 'string' || !raw.trim()) return null;
@@ -29,7 +29,7 @@ function assertSafeTestDatabase() {
     process.exit(1);
   }
   if (!isAllowedTestDatabaseUrl(process.env.DATABASE_URL || '')) {
-    console.error('[tests] Refus : DATABASE_URL n’est pas une base de test autorisée (hôte localhost / 127.0.0.1 / postgres et nom *_test).');
+    console.error('[tests] Refus : DATABASE_URL n’est pas une base de test autorisée (hôte localhost / 127.0.0.1 / mariadb-test et nom *_test).');
     process.exit(1);
   }
 }

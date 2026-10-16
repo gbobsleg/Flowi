@@ -55,6 +55,8 @@ function createPool() {
     supportBigNumbers: true,
     multipleStatements: true,
     connectionLimit: 10,
+    maxIdle: 0,
+    idleTimeout: 10000,
     charset: 'utf8mb4',
     typeCast(field: any, next: () => any) {
       if (field.type === 'TINY' && field.length === 1) {
