@@ -12,9 +12,9 @@ const config = require('../config');
 import db = require('../db');
 const { requireSupervisor } = require('../middlewares/supervisorAuth');
 const { Errors } = require('../middlewares/validate');
+const { readPackageJson, localVersion } = require('../lib/appVersion');
 
 type GithubResponse = { status: number; body: any };
-type PackageJson = { name?: string; version?: string; dependencies?: Record<string, string> };
 type AppIo = { emit: (event: string, payload?: unknown) => void };
 
 // Verrou : un seul update à la fois
@@ -39,18 +39,6 @@ function githubGet(urlPath: string): Promise<GithubResponse> {
       });
     }).on('error', reject);
   });
-}
-
-function readPackageJson(): PackageJson {
-  try {
-    return JSON.parse(fs.readFileSync(path.resolve(__dirname, '../../package.json'), 'utf8'));
-  } catch {
-    return { name: 'app-pauses', version: '0.0.0', dependencies: {} };
-  }
-}
-
-function localVersion(): string {
-  return readPackageJson().version || '0.0.0';
 }
 
 function installedVersion(pkgName: string): string | null {

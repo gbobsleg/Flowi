@@ -324,6 +324,7 @@ function supervisorApp() {
 
     // ── Init ─────────────────────────────────────
     async init() {
+      if (typeof window.fixiSetUser === 'function') window.fixiSetUser('Superviseur');
       await this.checkAuth();
       if (!this.isAuth) return;
       // Aligner l’URL (hash) et activeTab AVANT $watch(immediate), sinon chargements lazy ignorés ou en course d’écrasement.
@@ -452,6 +453,11 @@ function supervisorApp() {
       try {
         await fetch('/api/supervisor/logout', { method: 'POST', credentials: 'include' });
       } catch { /* ignore */ }
+      this.endSession();
+    },
+
+    /** Retour à l'écran de PIN, sans appel serveur (logout, session refusée par le socket). */
+    endSession() {
       this.isAuth = false;
       this.pinInput = '';
       if (this._socket) { this._socket.disconnect(); this._socket = null; }
@@ -2188,6 +2194,11 @@ function supervisorApp() {
 
       socket.on('connect',    () => { this.socketConnected = true;  socket.emit('join:supervisor'); });
       socket.on('disconnect', () => { this.socketConnected = false; });
+      // Session superviseur inconnue du serveur (ex. redémarrage : sessions en mémoire perdues)
+      socket.on('supervisor:unauthorized', () => {
+        this.endSession();
+        this.loginError = 'Session expirée, saisissez à nouveau le PIN.';
+      });
       socket.on('connect_error', (err) => {
         this.socketConnected = false;
         console.warn('[socket] connect_error', err && err.message ? err.message : err);
