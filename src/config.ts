@@ -13,4 +13,7 @@ module.exports = {
   GITHUB_REPO: process.env.GITHUB_REPO || '',
   UPDATE_SCRIPT_PATH: process.env.UPDATE_SCRIPT_PATH || './scripts/update.sh',
   RESTART_COMMAND: process.env.RESTART_COMMAND || 'pm2 restart app-pauses',
+  // Widget de signalement Fixi : désactivé si l'une des deux valeurs est vide
+  FIXI_WIDGET_URL: process.env.FIXI_WIDGET_URL || '',
+  FIXI_API_KEY: process.env.FIXI_API_KEY || '',
 };

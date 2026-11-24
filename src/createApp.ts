@@ -7,6 +7,12 @@ const express = require('express');
 const cookieParser = require('cookie-parser');
 const { Server } = require('socket.io');
 const path = require('path');
+const { parse: parseCookie } = require('cookie');
+
+const config = require('./config');
+const { validateToken } = require('./middlewares/supervisorAuth');
+const { buildFixiLoader } = require('./lib/fixiLoader');
+const { localVersion } = require('./lib/appVersion');
 
 import db = require('./db');
 const { router: agentRouter, buildSnapshot } = require('./routes/agentRoutes');
@@ -75,6 +81,19 @@ function createApp() {
 
   app.use(express.json());
   app.use(cookieParser());
+
+  // Script de chargement du widget Fixi (pages statiques : la config passe par ici)
+  const fixiLoaderScript: string = buildFixiLoader({
+    widgetUrl: config.FIXI_WIDGET_URL,
+    apiKey: config.FIXI_API_KEY,
+    version: localVersion(),
+  });
+  app.get('/fixi-loader.js', (_req: Request, res: Response) => {
+    res.set('Content-Type', 'application/javascript; charset=utf-8');
+    res.set('Cache-Control', 'no-cache');
+    res.send(fixiLoaderScript);
+  });
+
   app.use(express.static(path.join(__dirname, '..', 'public')));
 
   app.use('/api/agent', agentRouter);
@@ -117,6 +136,13 @@ function createApp() {
     });
 
     socket.on('join:supervisor', () => {
+      // /socket.io/ n'est pas protégé par la Basic Auth nginx : on exige la session superviseur (cookie sv_token)
+      const rawCookie = socket.handshake?.headers?.cookie;
+      const token = typeof rawCookie === 'string' ? parseCookie(rawCookie).sv_token : undefined;
+      if (!validateToken(token)) {
+        socket.emit('supervisor:unauthorized');
+        return;
+      }
       socket.join('supervisor');
       console.log(`[socket] ${clientId} a rejoint la room superviseur`);
       buildSnapshot()

@@ -8,6 +8,7 @@
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/assets/theme.js"></script>
+  <script src="/fixi-loader.js"></script>
   <script src="/socket.io/socket.io.js"></script>
 
   <style>
@@ -322,7 +323,7 @@
           <tbody>
             <template x-for="p in livePauses" :key="p.id">
               <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
-                <td class="px-5 py-3 font-medium text-slate-700" x-text="p.agentName"></td>
+                <td class="px-5 py-3 font-medium text-slate-700" data-fixi-mask x-text="p.agentName"></td>
                 <td class="px-5 py-3">
                   <span
                     class="inline-block text-slate-900 text-xs rounded px-1.5 py-0.5 border border-shell-border"
@@ -411,7 +412,7 @@
               <template x-for="row in histSorted" :key="row.id">
                 <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors"
                   :class="row.excluded_from_budget ? 'opacity-60' : ''">
-                  <td class="px-4 py-3 font-medium text-slate-700" x-text="`${row.prenom} ${row.nom}`"></td>
+                  <td class="px-4 py-3 font-medium text-slate-700" data-fixi-mask x-text="`${row.prenom} ${row.nom}`"></td>
                   <td class="px-4 py-3">
                     <span class="inline-block bg-slate-100 text-slate-700 text-xs rounded px-1.5 py-0.5"
                       x-text="row.offer_label || offerLabel(row.offer_code)"></span>
@@ -506,12 +507,14 @@
           <input
             type="text"
             x-model="directoryForm.nom"
+            data-fixi-mask
             placeholder="Nom"
             class="border border-shell-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
           >
           <input
             type="text"
             x-model="directoryForm.prenom"
+            data-fixi-mask
             placeholder="Prénom"
             class="border border-shell-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400"
           >
@@ -547,8 +550,8 @@
               <template x-for="agent in directoryRows" :key="agent.matricule">
                 <tr class="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
                   <td class="px-4 py-3 font-mono text-xs text-slate-700" x-text="agent.matricule"></td>
-                  <td class="px-4 py-3 font-medium text-slate-700" x-text="agent.nom"></td>
-                  <td class="px-4 py-3 text-slate-700" x-text="agent.prenom"></td>
+                  <td class="px-4 py-3 font-medium text-slate-700" data-fixi-mask x-text="agent.nom"></td>
+                  <td class="px-4 py-3 text-slate-700" data-fixi-mask x-text="agent.prenom"></td>
                   <td class="px-4 py-3">
                     <span
                       class="inline-block rounded-full px-2 py-0.5 text-xs font-medium"
