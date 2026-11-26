@@ -1,15 +1,17 @@
 services:
-  postgres-test:
-    image: postgres:16
-    container_name: flowi-postgres-test
+  mariadb-test:
+    image: docker.io/library/mariadb:10.5
+    container_name: flowi-mariadb-test
     environment:
-      POSTGRES_USER: flowi
-      POSTGRES_PASSWORD: flowi
-      POSTGRES_DB: flowi_test
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: flowi_test
+      MARIADB_USER: flowi
+      MARIADB_PASSWORD: flowi
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
     ports:
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:3317:3306"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U flowi -d flowi_test"]
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 20

@@ -10,22 +10,22 @@ const { createApp } = require('../../dist/createApp');
 const { getParisClock } = require('../../dist/lib/pauseCredits');
 
 const TRUNCATE_SQL = `
-  TRUNCATE
-    pauses,
-    planning_slots,
-    planning_activities,
-    wfm_activity_mappings,
-    quota_rules,
-    agents,
-    offers,
-    app_settings
-  RESTART IDENTITY CASCADE
+  SET FOREIGN_KEY_CHECKS = 0;
+  TRUNCATE TABLE pauses;
+  TRUNCATE TABLE planning_slots;
+  TRUNCATE TABLE planning_activities;
+  TRUNCATE TABLE wfm_activity_mappings;
+  TRUNCATE TABLE quota_rules;
+  TRUNCATE TABLE agents;
+  TRUNCATE TABLE offers;
+  TRUNCATE TABLE app_settings;
+  SET FOREIGN_KEY_CHECKS = 1;
 `;
 
 async function seedMinimal() {
   const now = new Date().toISOString();
   await db.query(
-    `INSERT INTO app_settings (key, value) VALUES
+    `INSERT INTO app_settings (\`key\`, value) VALUES
       ('history_retention_days', '30'),
       ('maintenance_mode', '0'),
       ('max_pause_minutes', '15'),
@@ -72,6 +72,7 @@ async function stopTestApp(ctx) {
       ctx.server.close((err) => (err ? reject(err) : resolve()));
     });
   }
+  await db.close();
 }
 
 async function requestJson(baseUrl, method, path, { body, token } = {}) {

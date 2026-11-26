@@ -18,7 +18,7 @@ function createSession(): string {
 }
 
 async function getEffectiveSupervisorPin(): Promise<string> {
-  const row = await db.queryOne<{ value: string }>("SELECT value FROM app_settings WHERE key = 'supervisor_pin'");
+  const row = await db.queryOne<{ value: string }>("SELECT value FROM app_settings WHERE `key` = 'supervisor_pin'");
   if (row && typeof row.value === 'string') {
     const v = row.value.trim();
     if (v !== '') return v;

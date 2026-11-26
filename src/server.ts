@@ -1,6 +1,6 @@
 'use strict';
 
-import type { PoolClient } from 'pg';
+import type { DbClient } from './db/types';
 import type { PublicBudget } from './lib/pauseBudget';
 
 require('dotenv').config();
@@ -34,7 +34,7 @@ function nowIso(): string {
 }
 
 async function getMaxMs(): Promise<number> {
-  const row = await db.queryOne<SettingRow>("SELECT value FROM app_settings WHERE key = 'max_pause_minutes'");
+  const row = await db.queryOne<SettingRow>("SELECT value FROM app_settings WHERE `key` = 'max_pause_minutes'");
   const minutes = row ? parseInt(row.value, 10) : config.MAX_PAUSE_MINUTES;
   return (Number.isFinite(minutes) && minutes > 0 ? minutes : config.MAX_PAUSE_MINUTES) * 60 * 1000;
 }
@@ -52,7 +52,7 @@ async function closeExpiredPauses(): Promise<void> {
     'JOIN offers o ON o.id = p.offer_id ' +
     'JOIN agents a ON a.matricule = p.agent_matricule ' +
     "WHERE p.status = 'in_progress' AND (" +
-    '  (p.allowed_seconds IS NOT NULL AND p.start_time + (p.allowed_seconds * INTERVAL \'1 second\') <= NOW()) ' +
+    '  (p.allowed_seconds IS NOT NULL AND DATE_ADD(p.start_time, INTERVAL p.allowed_seconds SECOND) <= NOW(3)) ' +
     '  OR (p.allowed_seconds IS NULL AND p.start_time <= $1)' +
     ')',
     [cutoff]
@@ -63,11 +63,11 @@ async function closeExpiredPauses(): Promise<void> {
   const now = nowIso();
   const currentMaxMinutes = Math.round(maxMs / 60000);
 
-  await db.withTransaction(async (client: PoolClient) => {
+  await db.withTransaction(async (client: DbClient) => {
     for (const p of expired) {
       await client.query(
         "UPDATE pauses SET status = 'ended', end_time = $1, end_reason = 'auto_15m', " +
-        'duration_seconds = EXTRACT(EPOCH FROM ($1::timestamptz - start_time))::integer, ' +
+        'duration_seconds = TIMESTAMPDIFF(SECOND, start_time, $1), ' +
         'max_minutes_at_end = $2, updated_at = $1 WHERE id = $3 AND status = \'in_progress\'',
         [now, currentMaxMinutes, p.id]
       );
@@ -100,7 +100,7 @@ async function closeExpiredPauses(): Promise<void> {
 }
 
 async function purgeHistory(): Promise<void> {
-  const row = await db.queryOne<SettingRow>("SELECT value FROM app_settings WHERE key = 'history_retention_days'");
+  const row = await db.queryOne<SettingRow>("SELECT value FROM app_settings WHERE `key` = 'history_retention_days'");
   const days = row ? parseInt(row.value, 10) : config.HISTORY_RETENTION_DAYS;
   const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
@@ -119,7 +119,7 @@ async function purgeHistory(): Promise<void> {
   if (staleOffers.length === 0) return;
 
   let deleted = 0;
-  await db.withTransaction(async (client: PoolClient) => {
+  await db.withTransaction(async (client: DbClient) => {
     for (const offer of staleOffers) {
       const stillUsed = await client.query(
         'SELECT 1 FROM pauses WHERE offer_id = $1 LIMIT 1',

@@ -89,7 +89,7 @@ router.get('/bootstrap', async (req: Request, res: Response) => {
       : null;
 
     const maintenanceRow = await db.queryOne(
-      "SELECT value FROM app_settings WHERE key = 'maintenance_mode'"
+      "SELECT value FROM app_settings WHERE `key` = 'maintenance_mode'"
     );
     const maintenanceMode = maintenanceRow ? maintenanceRow.value === '1' : false;
 
@@ -180,7 +180,7 @@ router.post('/pause/start', async (req: Request, res: Response) => {
     if (!agent.is_active) return Errors.unauthorized(res);
 
     const maintenanceRow = await db.queryOne(
-      "SELECT value FROM app_settings WHERE key = 'maintenance_mode'"
+      "SELECT value FROM app_settings WHERE `key` = 'maintenance_mode'"
     );
     if (maintenanceRow && maintenanceRow.value === '1') {
       return res.status(503).json({ error: { code: 'MAINTENANCE_ACTIVE', message: 'Départs en pause suspendus (Consigne Superviseur)' } });
@@ -190,8 +190,8 @@ router.post('/pause/start', async (req: Request, res: Response) => {
 
     const result = await db.withTransaction(async (client: { query: Function }) => {
       await client.query(
-        'SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))',
-        ['pause-start', agentMatricule]
+        'SELECT matricule FROM agents WHERE matricule = $1 FOR UPDATE',
+        [agentMatricule]
       );
 
       const windowStatusTx = await loadPauseWindowStatus(client);

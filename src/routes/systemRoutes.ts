@@ -51,7 +51,7 @@ function installedVersion(pkgName: string): string | null {
 
 const DEP_ROLES: Record<string, string> = {
   express: 'Serveur web',
-  pg: 'Base de données',
+  mysql2: 'Base de données',
   'socket.io': 'Mises à jour en direct',
   'cookie-parser': 'Session de connexion',
   dotenv: 'Configuration',
@@ -69,7 +69,7 @@ function semverGt(a: string, b: string): boolean {
 }
 
 async function readSetting(key: string): Promise<string> {
-  const row = await db.queryOne<{ value: string }>('SELECT value FROM app_settings WHERE key = $1', [key]);
+  const row = await db.queryOne<{ value: string }>('SELECT value FROM app_settings WHERE `key` = $1', [key]);
   if (!row || typeof row.value !== 'string') return '';
   return row.value.trim();
 }
@@ -88,7 +88,7 @@ async function resolveOtaRepo(): Promise<{ owner: string; repo: string }> {
 
 /**
  * GET /api/supervisor/system/about
- * Versions installées (package.json + Node + PostgreSQL) pour l’onglet À propos.
+ * Versions installées (package.json + Node + MariaDB) pour l’onglet À propos.
  */
 router.get('/about', requireSupervisor, async (_req: Request, res: Response) => {
   try {
@@ -96,7 +96,7 @@ router.get('/about', requireSupervisor, async (_req: Request, res: Response) => 
 
     let database: string | null = null;
     try {
-      const row = await db.queryOne<{ version: string }>("SELECT current_setting('server_version') AS version");
+      const row = await db.queryOne<{ version: string }>('SELECT VERSION() AS version');
       database = row && row.version ? String(row.version) : null;
     } catch {
       database = null;

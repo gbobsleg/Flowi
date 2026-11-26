@@ -39,7 +39,7 @@ function parseEnabled(raw: unknown): boolean {
 }
 
 async function loadAnonymizeAgentNames(client?: Queryable | null): Promise<boolean> {
-  const sql = "SELECT value FROM app_settings WHERE key = 'anonymize_agent_names'";
+  const sql = "SELECT value FROM app_settings WHERE `key` = 'anonymize_agent_names'";
   let row: { value?: string } | undefined;
   if (client && typeof client.query === 'function') {
     const result = await client.query(sql);

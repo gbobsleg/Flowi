@@ -1,25 +1,25 @@
 'use strict';
 
-import type { PoolClient } from 'pg';
+import type { DbClient } from './types';
 
 function canonicalWfmLabelSql(column: string): string {
-  return `TRIM(BOTH FROM REGEXP_REPLACE(REGEXP_REPLACE(${column}, '\\s*\\([^)]*\\)', ' ', 'g'), '\\s+', ' ', 'g'))`;
+  return `TRIM(BOTH FROM REGEXP_REPLACE(REGEXP_REPLACE(${column}, '\\\\s*\\\\([^)]*\\\\)', ' '), '\\\\s+', ' '))`;
 }
 
-async function rebuildPlanningSlots(client: PoolClient, dates: string[] | null = null): Promise<void> {
+async function rebuildPlanningSlots(client: DbClient, dates: string[] | null = null): Promise<void> {
   if (!client || typeof client.query !== 'function') {
-    throw new Error('rebuildPlanningSlots : client pg requis');
+    throw new Error('rebuildPlanningSlots : client base de données requis');
   }
 
   const scoped = Array.isArray(dates) && dates.length > 0;
 
   if (scoped) {
-    await client.query('DELETE FROM planning_slots WHERE day = ANY($1::date[])', [dates]);
+    await client.query('DELETE FROM planning_slots WHERE day IN ($1)', [dates]);
   } else {
     await client.query('DELETE FROM planning_slots');
   }
 
-  const whereDay = scoped ? 'AND a.day = ANY($1::date[])' : '';
+  const whereDay = scoped ? 'AND a.day IN ($1)' : '';
   const params = scoped ? [dates] : [];
 
   const activityCanon = canonicalWfmLabelSql('a.wfm_label');
@@ -27,16 +27,16 @@ async function rebuildPlanningSlots(client: PoolClient, dates: string[] | null =
 
   await client.query(
     `INSERT INTO planning_slots (day, offer_id, slot_minutes, headcount)
-     SELECT a.day, map.offer_id, a.slot_minutes, SUM(a.headcount)::integer
+     SELECT a.day, map.offer_id, a.slot_minutes, SUM(a.headcount)
      FROM planning_activities a
      INNER JOIN (
-       SELECT DISTINCT ON (canon) offer_id, canon
+       SELECT MIN(offer_id) AS offer_id, canon
        FROM (
          SELECT offer_id, ${mappingCanon} AS canon
          FROM wfm_activity_mappings m
          WHERE m.offer_id IS NOT NULL
        ) mapped
-       ORDER BY canon, offer_id
+       GROUP BY canon
      ) map ON map.canon = ${activityCanon}
      WHERE 1 = 1
        ${whereDay}

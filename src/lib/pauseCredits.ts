@@ -69,7 +69,7 @@ function getParisClock(date = new Date()): {
 async function loadPauseWindowStatus(client?: QueryClient | null) {
   const clock = getParisClock();
   const windowsRow = await qOne(
-    "SELECT value FROM app_settings WHERE key = 'pause_windows'",
+    "SELECT value FROM app_settings WHERE `key` = 'pause_windows'",
     [],
     client
   );
@@ -77,13 +77,13 @@ async function loadPauseWindowStatus(client?: QueryClient | null) {
 }
 
 async function loadMaxPauseMinutes(client?: QueryClient | null): Promise<number> {
-  const row = await qOne("SELECT value FROM app_settings WHERE key = 'max_pause_minutes'", [], client);
+  const row = await qOne("SELECT value FROM app_settings WHERE `key` = 'max_pause_minutes'", [], client);
   const n = row ? parseInt(row.value, 10) : 15;
   return Number.isFinite(n) && n > 0 ? n : 15;
 }
 
 async function loadMaxPausesPerAgent(client?: QueryClient | null): Promise<number | null> {
-  const row = await qOne("SELECT value FROM app_settings WHERE key = 'max_pauses_per_agent'", [], client);
+  const row = await qOne("SELECT value FROM app_settings WHERE `key` = 'max_pauses_per_agent'", [], client);
   return parseMaxPauses(row && row.value);
 }
 
@@ -98,7 +98,7 @@ async function loadAgentPauseBudget(
     ? await qAll(SQL_AGENT_DAY_PAUSES, [matricule, start.toISOString(), end.toISOString()], client)
     : [];
   const windowsRow = await qOne(
-    "SELECT value FROM app_settings WHERE key = 'pause_windows'",
+    "SELECT value FROM app_settings WHERE `key` = 'pause_windows'",
     [],
     client
   );
@@ -123,7 +123,7 @@ async function loadDirectoryPauseCredits(client?: QueryClient | null, now = new 
   const { start, end } = parisDayBounds(clock.day);
   const windowStatus = await loadPauseWindowStatus(client);
   const windowsRow = await qOne(
-    "SELECT value FROM app_settings WHERE key = 'pause_windows'",
+    "SELECT value FROM app_settings WHERE `key` = 'pause_windows'",
     [],
     client
   );

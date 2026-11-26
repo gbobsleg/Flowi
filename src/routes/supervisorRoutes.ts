@@ -23,7 +23,7 @@ function nowIso() { return new Date().toISOString(); }
 type TxClient = { query: (sql: string, params?: unknown[]) => Promise<any> };
 type UploadReq = Request & { file?: { buffer: Buffer } };
 
-function pgCode(err: unknown): string | undefined {
+function dbErrorCode(err: unknown): string | undefined {
   if (!err || typeof err !== 'object' || !('code' in err)) return undefined;
   return String((err as { code: unknown }).code);
 }
@@ -35,8 +35,8 @@ function queryString(value: unknown): string {
 const SUPERVISOR_PIN_RE = /^\d{4,6}$/;
 
 const UPSERT_SETTING =
-  'INSERT INTO app_settings (key, value) VALUES ($1, $2) ' +
-  'ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value';
+  'INSERT INTO app_settings (`key`, value) VALUES ($1, $2) ' +
+  'ON DUPLICATE KEY UPDATE value = VALUES(value)';
 
 /** Normalise propriétaire / nom de dépôt (bords + espaces internes). */
 function normalizeGithubOwnerRepo(raw: unknown) {
@@ -153,8 +153,8 @@ router.post('/offers', requireSupervisor, async (req: Request, res: Response) =>
         );
         break;
       } catch (err) {
-        if (pgCode(err) === '23505' && attempt < maxAttempts - 1) continue;
-        if (pgCode(err) === '23505') {
+        if (dbErrorCode(err) === 'ER_DUP_ENTRY' && attempt < maxAttempts - 1) continue;
+        if (dbErrorCode(err) === 'ER_DUP_ENTRY') {
           return Errors.conflict(res, 'Impossible d’attribuer un code interne unique');
         }
         throw err;
@@ -298,11 +298,13 @@ router.delete('/offers/:offerCode', requireSupervisor, async (req: Request, res:
       return res.json({ deleted: true, offer: null, message: 'Offre supprimée.' });
     }
 
-    const offer = await db.queryOne(
-      `UPDATE offers SET is_active = false, purge_requested_at = $2
-       WHERE id = $1
-       RETURNING ${OFFER_COLUMNS}`,
+    await db.query(
+      'UPDATE offers SET is_active = false, purge_requested_at = $2 WHERE id = $1',
       [existing.id, nowIso()]
+    );
+    const offer = await db.queryOne(
+      `SELECT ${OFFER_COLUMNS} FROM offers WHERE id = $1`,
+      [existing.id]
     );
 
     const io = req.app.get('io');
@@ -708,8 +710,8 @@ router.post('/planning/import/preview', requireSupervisor, handlePlanningUpload,
     });
     res.json(payload);
   } catch (err) {
-    if (err instanceof GenesysImportError || pgCode(err) === 'FORMAT') {
-      return apiError(res, 400, pgCode(err) || 'FORMAT', err instanceof Error ? err.message : 'FORMAT');
+    if (err instanceof GenesysImportError || dbErrorCode(err) === 'FORMAT') {
+      return apiError(res, 400, dbErrorCode(err) || 'FORMAT', err instanceof Error ? err.message : 'FORMAT');
     }
     Errors.internal(res, err);
   }
@@ -728,8 +730,8 @@ router.post('/planning/import', requireSupervisor, handlePlanningUpload, async (
     if (io) await emitQuotasUpdate(io);
     res.json(result);
   } catch (err) {
-    if (err instanceof GenesysImportError || pgCode(err) === 'FORMAT') {
-      return apiError(res, 400, pgCode(err) || 'FORMAT', err instanceof Error ? err.message : 'FORMAT');
+    if (err instanceof GenesysImportError || dbErrorCode(err) === 'FORMAT') {
+      return apiError(res, 400, dbErrorCode(err) || 'FORMAT', err instanceof Error ? err.message : 'FORMAT');
     }
     Errors.internal(res, err);
   }
@@ -773,12 +775,12 @@ router.put('/planning/mapping', requireSupervisor, async (req: Request, res: Res
         await client.query(
           `DELETE FROM wfm_activity_mappings
            WHERE label <> $1
-             AND TRIM(BOTH FROM REGEXP_REPLACE(REGEXP_REPLACE(label, '\\s*\\([^)]*\\)', ' ', 'g'), '\\s+', ' ', 'g')) = $1`,
+             AND TRIM(BOTH FROM REGEXP_REPLACE(REGEXP_REPLACE(label, '\\\\s*\\\\([^)]*\\\\)', ' '), '\\\\s+', ' ')) = $1`,
           [row.label]
         );
         await client.query(
           `INSERT INTO wfm_activity_mappings (label, offer_id) VALUES ($1, $2)
-           ON CONFLICT (label) DO UPDATE SET offer_id = EXCLUDED.offer_id`,
+           ON DUPLICATE KEY UPDATE offer_id = VALUES(offer_id)`,
           [row.label, row.offerId]
         );
       }
@@ -822,7 +824,7 @@ router.get('/planning/slots', requireSupervisor, async (req: Request, res: Respo
               ps.slot_minutes, ps.headcount
        FROM offers o
        LEFT JOIN quota_rules qr ON qr.offer_id = o.id
-       LEFT JOIN planning_slots ps ON ps.offer_id = o.id AND ps.day = $1::date
+       LEFT JOIN planning_slots ps ON ps.offer_id = o.id AND ps.day = $1
        WHERE o.purge_requested_at IS NULL
        ORDER BY o.code, ps.slot_minutes`,
       [day]
@@ -1045,12 +1047,15 @@ router.patch('/pauses/:id', requireSupervisor, async (req: Request, res: Respons
       return Errors.conflict(res, 'Seule une pause terminée peut être ignorée. Forcer le retour d’abord.');
     }
 
-    const updated = await db.queryOne(
-      `UPDATE pauses SET excluded_from_budget = $1, updated_at = NOW()
-       WHERE id = $2
-       RETURNING id, agent_matricule, status, excluded_from_budget, start_time, end_time,
-                 end_reason, duration_seconds, max_minutes_at_end`,
+    await db.query(
+      'UPDATE pauses SET excluded_from_budget = $1, updated_at = NOW(3) WHERE id = $2',
       [excluded, id]
+    );
+    const updated = await db.queryOne(
+      `SELECT id, agent_matricule, status, excluded_from_budget, start_time, end_time,
+              end_reason, duration_seconds, max_minutes_at_end
+       FROM pauses WHERE id = $1`,
+      [id]
     );
 
     const pauseBudget: PublicBudget = await loadAgentPauseBudget(updated.agent_matricule);
@@ -1075,7 +1080,7 @@ router.patch('/pauses/:id', requireSupervisor, async (req: Request, res: Respons
  */
 router.get('/settings', requireSupervisor, async (req: Request, res: Response) => {
   try {
-    const rows = await db.queryAll('SELECT key, value FROM app_settings');
+    const rows = await db.queryAll('SELECT `key`, value FROM app_settings');
     const settings = Object.fromEntries(rows.map((r: { key: string; value: string }) => [r.key, r.value]));
     const rawToken = settings.github_token;
     delete settings.github_token;
@@ -1177,7 +1182,7 @@ router.put('/settings/maintenance-mode', requireSupervisor, async (req: Request,
  */
 router.get('/settings/maintenance-mode', requireSupervisor, async (req: Request, res: Response) => {
   try {
-    const row = await db.queryOne("SELECT value FROM app_settings WHERE key = 'maintenance_mode'");
+    const row = await db.queryOne("SELECT value FROM app_settings WHERE `key` = 'maintenance_mode'");
     res.json({ maintenanceMode: row ? row.value === '1' : false });
   } catch (err) {
     Errors.internal(res, err);

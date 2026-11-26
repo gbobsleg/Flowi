@@ -1,13 +1,13 @@
 'use strict';
 
-import type { PoolClient } from 'pg';
+import type { DbClient } from '../db/types';
 
 const iconv = require('iconv-lite');
 const { parse } = require('csv-parse/sync');
 import db = require('../db');
 const { isFrenchHoliday } = require('../lib/frenchHolidays');
 
-type QueryClient = Pick<PoolClient, 'query'>;
+type QueryClient = DbClient;
 
 type GenesysCols = {
   date: number;
@@ -233,8 +233,8 @@ function parseGenesysCsv(buffer: Buffer): { details: DetailRow[]; daysInFile: st
 
 async function loadImportSettings(client: QueryClient): Promise<{ weekdays: Set<number>; skipHolidays: boolean }> {
   const result = await client.query(
-    `SELECT key, value FROM app_settings
-     WHERE key = ANY($1::text[])`,
+    `SELECT \`key\`, value FROM app_settings
+     WHERE \`key\` IN ($1)`,
     [['planning_import_weekdays', 'planning_skip_french_holidays']]
   );
   const map = Object.fromEntries(
@@ -408,7 +408,7 @@ async function insertActivities(client: QueryClient, rows: ActivityRow[]): Promi
     const placeholders = chunk.map((r, idx) => {
       const o = idx * 4;
       params.push(r.day, r.wfmLabel, r.slotMinutes, r.headcount);
-      return `($${o + 1}::date, $${o + 2}, $${o + 3}, $${o + 4})`;
+      return `($${o + 1}, $${o + 2}, $${o + 3}, $${o + 4})`;
     });
     await client.query(
       `INSERT INTO planning_activities (day, wfm_label, slot_minutes, headcount)
@@ -425,7 +425,7 @@ async function importGenesysBuffer(buffer: Buffer) {
 
     if (daysInFile.length > 0) {
       await client.query(
-        'DELETE FROM planning_activities WHERE day = ANY($1::date[])',
+        'DELETE FROM planning_activities WHERE day IN ($1)',
         [daysInFile]
       );
     }
