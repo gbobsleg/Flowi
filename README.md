@@ -41,7 +41,7 @@ Accès : [http://127.0.0.1:3001](http://127.0.0.1:3001)
 
 Arrêt : `docker compose down`. Les données restent dans la base MariaDB de l’hôte.
 
-Tests : `docker compose -f docker-compose.test.yml up -d --wait`, puis `NODE_ENV=test DATABASE_URL=mysql://flowi:flowi@127.0.0.1:3307/flowi_test npm test`.
+Tests : `docker compose -f docker-compose.test.yml up -d --wait`, puis `NODE_ENV=test DATABASE_URL=mysql://flowi:flowi@127.0.0.1:3317/flowi_test npm test`.
 
 ## Amorçage des données
 
