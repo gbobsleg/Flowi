@@ -93,7 +93,7 @@ describe('HTTP pause budget', { skip: !httpEnabled }, () => {
     });
     assert.equal(blocked.status, 409);
 
-    const socket = await helpers.connectSupervisorSocket(ctx.baseUrl);
+    const socket = await helpers.connectSupervisorSocket(ctx.baseUrl, token);
     const creditsP = helpers.waitForEvent(socket, 'directory:credits-updated');
 
     const patched = await helpers.requestJson(ctx.baseUrl, 'PATCH', `/api/supervisor/pauses/${ended.id}`, {
@@ -131,7 +131,7 @@ describe('HTTP pause budget', { skip: !httpEnabled }, () => {
   });
 
   it('PUT pause-windows émet directory:credits-updated avec pauseWindowOpen=false', async () => {
-    const socket = await helpers.connectSupervisorSocket(ctx.baseUrl);
+    const socket = await helpers.connectSupervisorSocket(ctx.baseUrl, token);
     const creditsP = helpers.waitForEvent(socket, 'directory:credits-updated');
     const windows = helpers.closedWindowsFarFromNow();
 

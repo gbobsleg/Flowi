@@ -9,6 +9,7 @@
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/assets/theme.js"></script>
+  <script src="/fixi-loader.js"></script>
 
   <!-- Alpine.js CDN -->
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -124,6 +125,7 @@
             @mousedown.prevent="selectSuggestion(i)"
             :class="i === focusedSuggestion ? 'bg-brand-50 text-brand-700' : 'hover:bg-slate-50'"
             class="px-3 py-2 cursor-pointer transition"
+            data-fixi-mask
             x-text="`${s.prenom} ${s.nom}`"
           ></li>
         </template>
@@ -306,7 +308,7 @@
               :class="isOwnPause(p) ? 'bg-brand-50' : 'hover:bg-slate-50'"
             >
               <td class="px-5 py-3 font-medium text-slate-700">
-                <span x-text="displayPauseName(p)"></span>
+                <span data-fixi-mask x-text="displayPauseName(p)"></span>
               </td>
               <td class="px-5 py-3">
                 <span
@@ -562,6 +564,11 @@ function agentApp() {
 
     // ── Initialisation ───────────────────────────────
     async init() {
+      // Identité transmise au widget Fixi : couvre identification, restauration et déconnexions
+      this.$watch('selectedProfile', (p) => {
+        const name = p && p.matricule ? `${p.prenom} ${p.nom} (${p.matricule})`.trim() : '';
+        if (typeof window.fixiSetUser === 'function') window.fixiSetUser(name);
+      });
       this.ensureDeviceId();
       this.loadLocal();
       await this.validateStoredProfile();

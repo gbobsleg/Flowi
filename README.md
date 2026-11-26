@@ -52,3 +52,30 @@ Le script est **idempotent**. Relance manuelle :
 ```bash
 docker compose exec flowi node scripts/seed.js
 ```
+
+## Signalement de bugs (Fixi)
+
+Les pages agent et superviseur chargent le widget [Fixi](https://fixi.duckdns.org) via `GET /fixi-loader.js`. Il est activé par deux variables du `.env` :
+
+```bash
+FIXI_WIDGET_URL=https://fixi.duckdns.org/widget.js
+FIXI_API_KEY=<clé de l'application flowi dans l'admin Fixi>
+```
+
+Si l'une des deux est vide (cas par défaut en local), le widget n'est pas chargé et rien n'est envoyé à Fixi. Après modification en production : `docker compose up -d --build` (`docker compose restart` ne relit pas `.env`).
+
+L'origine de la page (ex. `https://flowi.duckdns.org`) doit être déclarée dans l'application `flowi` de Fixi, sinon les signalements sont refusés (403).
+
+Données personnelles : les noms d'agents portent `data-fixi-mask` (masqués sur la capture), et le loader déclare `data-redact-keys` (`query`, `agent_matricule`, `matricule`, `nom`, `prenom` caviardés dans la chronologie réseau). Les matricules présents dans le chemin d'URL (`/api/supervisor/agents/:matricule/...`) ne sont pas caviardés.
+
+## Publier une version
+
+La version affichée (page « À propos », comparaison OTA, `data-version` du widget Fixi) est celle de `package.json`. Après fusion sur `main` :
+
+```bash
+git switch main && git pull
+npm version minor          # ou patch : met à jour package.json, commite et crée le tag vX.Y.Z
+git push --follow-tags     # le tag déclenche la création de la release GitHub
+```
+
+Lancer ensuite le workflow « Déployer sur le VPS ».

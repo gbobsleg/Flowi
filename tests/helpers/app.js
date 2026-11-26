@@ -109,8 +109,10 @@ async function loginSupervisorInBrowser(page, baseUrl, pin = '1234') {
   await page.getByRole('button', { name: 'Historique' }).waitFor({ state: 'visible', timeout: 10_000 });
 }
 
-function connectSupervisorSocket(baseUrl) {
-  const socket = ioClient(baseUrl, { transports: ['websocket'], forceNew: true });
+/** Socket superviseur : `token` (issu de loginSupervisor) est envoyé comme cookie sv_token, exigé par join:supervisor. */
+function connectSupervisorSocket(baseUrl, token) {
+  const extraHeaders = token ? { cookie: `sv_token=${token}` } : {};
+  const socket = ioClient(baseUrl, { transports: ['websocket'], forceNew: true, extraHeaders });
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('timeout connexion socket')), 4000);
     socket.on('connect', () => {
