@@ -6,28 +6,16 @@ on:
 
 jobs:
   test:
-    name: Node 22 + Postgres 16
+    name: Node 22 + MariaDB 10.5
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: flowi
-          POSTGRES_PASSWORD: flowi
-          POSTGRES_DB: flowi_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U flowi -d flowi_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
       NODE_ENV: test
-      DATABASE_URL: postgres://flowi:flowi@localhost:5432/flowi_test
+      DATABASE_URL: mysql://flowi:flowi@127.0.0.1:3317/flowi_test
       SUPERVISOR_PIN: "1234"
     steps:
       - uses: actions/checkout@v4
+      - name: Démarrer MariaDB (même config qu'en local)
+        run: docker compose -f docker-compose.test.yml up -d --wait
       - uses: actions/setup-node@v4
         with:
           node-version: 22
