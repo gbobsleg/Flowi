@@ -1,6 +1,6 @@
 services:
   mariadb-test:
-    image: docker.io/library/mariadb:10.5
+    image: docker.io/library/mariadb:10.5.29
     container_name: flowi-mariadb-test
     environment:
       MARIADB_ROOT_PASSWORD: root

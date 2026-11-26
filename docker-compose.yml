@@ -1,4 +1,22 @@
 services:
+  mariadb:
+    image: docker.io/library/mariadb:10.5.29
+    container_name: flowi-mariadb
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:-flowi_root}
+      MARIADB_DATABASE: flowi
+      MARIADB_USER: flowi
+      MARIADB_PASSWORD: flowi
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - flowi_mariadb:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   flowi:
     build: .
     container_name: flowi
@@ -6,3 +24,11 @@ services:
     ports:
       - "127.0.0.1:3001:3000"
     env_file: .env
+    environment:
+      DATABASE_URL: mysql://flowi:flowi@mariadb:3306/flowi
+    depends_on:
+      mariadb:
+        condition: service_healthy
+
+volumes:
+  flowi_mariadb:
