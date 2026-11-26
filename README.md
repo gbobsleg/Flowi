@@ -18,13 +18,15 @@ copy .env.example .env
 
 Sur Linux ou macOS : `cp .env.example .env`.
 
-La persistance est **MariaDB (10.5 minimum)**, via `DATABASE_URL`. La base n’est pas dans le compose : elle tourne sur l’hôte, joint depuis le conteneur par `host.containers.internal` (Podman) ou `host.docker.internal` (Docker) :
+La persistance est **MariaDB 10.5.29** (même version que la VM de production). Avec Docker, le compose démarre MariaDB dans le conteneur `flowi-mariadb` (volume `flowi_mariadb`) et fournit `DATABASE_URL` à l’application : rien à renseigner dans `.env`.
+
+Hors compose (Node lancé à la main, Podman avec un MariaDB existant), renseigner `DATABASE_URL` vers une base `flowi` en `utf8mb4` :
 
 ```
-DATABASE_URL=mysql://flowi_user:motdepasse@host.containers.internal:3306/flowi
+DATABASE_URL=mysql://flowi:flowi@127.0.0.1:3306/flowi
 ```
 
-La base `flowi` doit exister en `utf8mb4`. Les migrations créent les tables au démarrage. Autres variables : `PORT`, `SUPERVISOR_PIN`, quotas et options OTA (`GITHUB_OWNER`, `GITHUB_REPO`, etc. — voir [.env.example](.env.example)).
+Les migrations créent les tables au démarrage. Autres variables : `PORT`, `SUPERVISOR_PIN`, quotas et options OTA (`GITHUB_OWNER`, `GITHUB_REPO`, etc. — voir [.env.example](.env.example)).
 
 ## Lancement
 
@@ -39,7 +41,18 @@ Accès : [http://127.0.0.1:3001](http://127.0.0.1:3001)
 - Agent : `/agent/`
 - Superviseur : `/supervisor/` (PIN par défaut après seed : `1234`)
 
-Arrêt : `docker compose down`. Les données restent dans la base MariaDB de l’hôte.
+Arrêt : `docker compose down`. Les données restent dans le volume `flowi_mariadb` (`docker compose down -v` les efface).
+
+Reprise d’une ancienne base PostgreSQL (une seule fois par machine, Flowi arrêté, conteneur `flowi-postgres` démarré) :
+
+```bash
+docker compose up -d --wait mariadb
+docker compose build flowi
+docker compose run --rm --no-deps --entrypoint sh \
+  -e PG_URL=postgres://flowi:flowi@flowi-postgres:5432/flowi \
+  flowi -c "npm i --no-save pg@8 && node scripts/migrate-pg-to-mariadb.js"
+docker compose up -d
+```
 
 Tests : `docker compose -f docker-compose.test.yml up -d --wait`, puis `NODE_ENV=test DATABASE_URL=mysql://flowi:flowi@127.0.0.1:3317/flowi_test npm test`.
 
